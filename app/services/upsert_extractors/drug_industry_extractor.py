@@ -12,8 +12,8 @@ from dotenv import load_dotenv
 # Import your database configuration
 from app.core.database import async_session, engine, Base
 
-# Import the DrugIndustry model
-from app.models.drug_industry import DrugIndustry
+# Import the DrugProducts model
+from app.models.drug_products import DrugProducts
 
 load_dotenv()
 
@@ -95,7 +95,7 @@ def extract_data_from_html(file_path: str) -> pd.DataFrame:
 # ==============================================================================
 def transform_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Clean and transform the extracted data to match DrugIndustry database schema.
+    Clean and transform the extracted data to match DrugProducts database schema.
     Adjust column mappings based on your actual HTML table headers.
     
     Args:
@@ -111,40 +111,64 @@ def transform_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     
     # Define possible column names for each field (case-insensitive)
     possible_column_names = {
-        'license_number': [
-            'License Number', 'License No', 'License No.', 'License', 
-            'license number', 'license no', 'license', 'licensenumber', 'licenseno',
-            'LICENSE NUMBER', 'LICENSE NO', 'LICENSE'
+        'registration_number': [
+            'Registration Number', 'Registration No', 'Registration No.', 'Registration', 'Reg. No.',
+            'registration number', 'registration no', 'registration', 'reg number', 'reg no', 'reg no.',
+            'regnumber', 'regno', 'REGISTRATION NUMBER', 'REGISTRATION NO', 'REGISTRATION', 'REG NO'
         ],
-        'name_of_establishment': [
-            'Name of Establishment', 'Establishment Name', 'Business Name', 
-            'Company Name', 'Firm Name', 'Name', 'name of establishment', 
-            'establishment name', 'business name', 'company name', 'firm name', 
-            'name', 'nameofestablishment', 'businessname', 'companyname',
-            'NAME OF ESTABLISHMENT', 'ESTABLISHMENT NAME', 'BUSINESS NAME', 
-            'COMPANY NAME', 'FIRM NAME', 'NAME'
+        'product_information': [
+            'Product Information', 'Product Info', 'Product Details', 'Product Description',
+            'product information', 'product info', 'product details', 'product description',
+            'PRODUCT INFORMATION', 'PRODUCT INFO', 'PRODUCT DETAILS', 'PRODUCT DESCRIPTION'
         ],
-        'owner': [
-            'Owner', 'Proprietor', 'Owner Name', 'Business Owner', 
-            'owner', 'proprietor', 'owner name', 'business owner', 
-            'OWNER', 'PROPRIETOR', 'OWNER NAME', 'BUSINESS OWNER'
+        'generic_name': [
+            'Generic Name', 'Active Ingredient', 'Active Substance', 'generic name',
+            'active ingredient', 'active substance', 'GENERIC NAME', 'ACTIVE INGREDIENT', 'ACTIVE SUBSTANCE'
         ],
-        'address': [
-            'Address', 'Location', 'Business Address', 'Company Address', 
-            'Premise Address', 'address', 'location', 'business address', 
-            'company address', 'premise address', 'ADDRESS', 'LOCATION', 
-            'BUSINESS ADDRESS', 'COMPANY ADDRESS', 'PREMISE ADDRESS'
+        'brand_name': [
+            'Brand Name', 'Trade Name', 'Product Name', 'brand name', 'trade name',
+            'product name', 'BRAND NAME', 'TRADE NAME', 'PRODUCT NAME'
         ],
-        'region': [
-            'Region', 'Region Name', 'Area', 'Location Region', 
-            'region', 'region name', 'area', 'location region', 
-            'REGION', 'REGION NAME', 'AREA', 'LOCATION REGION'
+        'dosage_strength': [
+            'Dosage Strength', 'Strength', 'Concentration', 'dosage strength', 'strength',
+            'concentration', 'DOSAGE STRENGTH', 'STRENGTH', 'CONCENTRATION'
         ],
-        'activity': [
-            'Activity', 'Type of Activity', 'Business Activity', 'Activity Type', 
-            'Product Type', 'activity', 'type of activity', 'business activity', 
-            'activity type', 'product type', 'ACTIVITY', 'TYPE OF ACTIVITY', 
-            'BUSINESS ACTIVITY', 'ACTIVITY TYPE', 'PRODUCT TYPE'
+        'dosage_form': [
+            'Dosage Form', 'Form', 'Formulation', 'dosage form', 'form', 'formulation',
+            'DOSAGE FORM', 'FORM', 'FORMULATION'
+        ],
+        'classification': [
+            'Classification', 'Class', 'Type', 'classification', 'class', 'type',
+            'CLASSIFICATION', 'CLASS', 'TYPE'
+        ],
+        'packaging': [
+            'Packaging', 'Package', 'Pack Size', 'packaging', 'package', 'pack size',
+            'PACKAGING', 'PACKAGE', 'PACK SIZE'
+        ],
+        'pharmacologic_category': [
+            'Pharmacologic Category', 'Therapeutic Category', 'Category', 'pharmacologic category',
+            'therapeutic category', 'category', 'PHARMACOLOGIC CATEGORY', 'THERAPEUTIC CATEGORY', 'CATEGORY'
+        ],
+        'manufacturer': [
+            'Manufacturer', 'Producer', 'Manufacturing Company', 'manufacturer', 'producer',
+            'manufacturing company', 'MANUFACTURER', 'PRODUCER', 'MANUFACTURING COMPANY'
+        ],
+        'country_of_origin': [
+            'Country of Origin', 'Origin', 'Manufacturing Country', 'country of origin',
+            'origin', 'manufacturing country', 'COUNTRY OF ORIGIN', 'ORIGIN', 'MANUFACTURING COUNTRY'
+        ],
+        'trader': [
+            'Trader', 'Distributor Agent', 'trader', 'TRADER'
+        ],
+        'importer': [
+            'Importer', 'Import Company', 'importer', 'IMPORTER'
+        ],
+        'distributor': [
+            'Distributor', 'Distribution Company', 'distributor', 'DISTRIBUTOR'
+        ],
+        'application_type': [
+            'Application Type', 'App Type', 'application type', 'app type',
+            'APPLICATION TYPE', 'APP TYPE'
         ],
         'issuance_date': [
             'Issuance Date', 'Issue Date', 'Date of Issue', 'Date Issued', 
@@ -185,7 +209,10 @@ def transform_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     
     # Clean string columns - remove extra whitespace
     all_possible_string_columns = [
-        'license_number', 'name_of_establishment', 'owner', 'address', 'region', 'activity'
+        'registration_number', 'product_information', 'generic_name', 'brand_name', 
+        'dosage_strength', 'dosage_form', 'classification', 'packaging', 
+        'pharmacologic_category', 'manufacturer', 'country_of_origin', 
+        'trader', 'importer', 'distributor', 'application_type'
     ]
     
     for col in all_possible_string_columns:
@@ -194,14 +221,14 @@ def transform_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     
     # Remove rows with missing critical data (using the mapped column name)
     # Try to find the appropriate column name to use
-    license_col = None
+    reg_col = None
     for col in df_clean.columns:
-        if col == 'license_number':
-            license_col = col
+        if col == 'registration_number':
+            reg_col = col
             break
     
-    if license_col:
-        df_clean = df_clean.dropna(subset=[license_col])
+    if reg_col:
+        df_clean = df_clean.dropna(subset=[reg_col])
     
     # Replace NaN with None for database compatibility
     df_clean = df_clean.where(pd.notnull(df_clean), None)
@@ -244,17 +271,26 @@ async def bulk_upsert_data(data: List[Dict[str, Any]], batch_size: int = 1000):
                 batch = data[i:i + batch_size]
                 
                 # PostgreSQL INSERT ... ON CONFLICT (upsert)
-                stmt = insert(DrugIndustry).values(batch)
+                stmt = insert(DrugProducts).values(batch)
                 
-                # Update on conflict (if license_number already exists)
+                # Update on conflict (if registration_number already exists)
                 update_stmt = stmt.on_conflict_do_update(
-                    index_elements=['license_number'],
+                    index_elements=['registration_number'],
                     set_={
-                        'name_of_establishment': stmt.excluded.name_of_establishment,
-                        'owner': stmt.excluded.owner,
-                        'address': stmt.excluded.address,
-                        'region': stmt.excluded.region,
-                        'activity': stmt.excluded.activity,
+                        'product_information': stmt.excluded.product_information,
+                        'generic_name': stmt.excluded.generic_name,
+                        'brand_name': stmt.excluded.brand_name,
+                        'dosage_strength': stmt.excluded.dosage_strength,
+                        'dosage_form': stmt.excluded.dosage_form,
+                        'classification': stmt.excluded.classification,
+                        'packaging': stmt.excluded.packaging,
+                        'pharmacologic_category': stmt.excluded.pharmacologic_category,
+                        'manufacturer': stmt.excluded.manufacturer,
+                        'country_of_origin': stmt.excluded.country_of_origin,
+                        'trader': stmt.excluded.trader,
+                        'importer': stmt.excluded.importer,
+                        'distributor': stmt.excluded.distributor,
+                        'application_type': stmt.excluded.application_type,
                         'issuance_date': stmt.excluded.issuance_date,
                         'expiry_date': stmt.excluded.expiry_date,
                     }
@@ -292,7 +328,7 @@ async def bulk_insert_simple(data: List[Dict[str, Any]], batch_size: int = 1000)
                 batch = data[i:i + batch_size]
                 
                 # Direct bulk insert using Core
-                stmt = insert(DrugIndustry).values(batch)
+                stmt = insert(DrugProducts).values(batch)
                 await session.execute(stmt)
                 await session.commit()
                 
@@ -314,14 +350,14 @@ async def verify_insertion(limit: int = 5):
     
     async with async_session() as session:
         result = await session.execute(
-            select(DrugIndustry).limit(limit)
+            select(DrugProducts).limit(limit)
         )
         rows = result.scalars().all()
         
         if rows:
             print(f"✅ Found {len(rows)} rows in database")
             for row in rows:
-                print(f"  - {row.license_number}: {row.name_of_establishment}")
+                print(f"  - {row.registration_number}: {row.brand_name}")
         else:
             print("⚠️  No rows found in database")
 
@@ -330,7 +366,7 @@ async def get_record_count() -> int:
     """Get total number of records in database"""
     async with async_session() as session:
         result = await session.execute(
-            select(text('COUNT(*)')).select_from(DrugIndustry)
+            select(text('COUNT(*)')).select_from(DrugProducts)
         )
         count = result.scalar()
         return count or 0
@@ -462,7 +498,7 @@ if __name__ == "__main__":
     FOLDER_PATH = ""
     
     # Choose processing mode
-    USE_UPSERT = True  # True = handle duplicates, False = faster but fails on duplicates
+    USE_UPSERT = True  # True = handle duplicates, False = handle duplicates, False = faster but fails on duplicates
     
     # --------------------------------------------------------------------
     

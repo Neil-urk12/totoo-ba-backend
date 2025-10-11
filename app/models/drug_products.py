@@ -10,10 +10,9 @@ class DrugProducts(Base):
     
     Represents drug products with their registration and product information.
     """
-    __tablename__ = "Drug Products"
+    __tablename__ = "drug_products"
 
     registration_number: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
-    product_information: Mapped[str] = mapped_column(String, nullable=True)
     generic_name: Mapped[str] = mapped_column(String, nullable=True)
     brand_name: Mapped[str] = mapped_column(String, nullable=True)
     dosage_strength: Mapped[str] = mapped_column(String, nullable=True)
