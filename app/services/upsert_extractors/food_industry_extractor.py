@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 import logging
 from pathlib import Path
 import traceback
+import re
 from contextlib import asynccontextmanager
 
 
@@ -243,7 +244,8 @@ def parse_date_safely(date_str: Any) -> Optional[date]:
 
 def clean_string_field(value: Any, max_length: Optional[int] = None) -> Optional[str]:
     """
-    Clean and validate string fields.
+    Clean and validate string fields with regex support.
+    Handles Excel formula notation and other edge cases.
     
     Args:
         value: Input value
@@ -258,16 +260,26 @@ def clean_string_field(value: Any, max_length: Optional[int] = None) -> Optional
     # Convert to string and clean
     cleaned = str(value).strip()
     
+    # Remove Excel formula notation using regex
+    # Matches patterns like: ="value", ='value', ="123", etc.
+    cleaned = re.sub(r'^=["\'](.*)["\']$', r'\1', cleaned)
+    
+    # Remove leading = if present (catches other formula patterns)
+    cleaned = re.sub(r'^=+', '', cleaned)
+    
     # Remove multiple spaces
     cleaned = ' '.join(cleaned.split())
     
     # Remove special characters that might cause issues
     cleaned = cleaned.replace('\x00', '').replace('\r', ' ').replace('\n', ' ')
     
+    # Remove any remaining quotes
+    cleaned = cleaned.strip('"').strip("'")
+    
     # Truncate if needed
     if max_length and len(cleaned) > max_length:
         cleaned = cleaned[:max_length]
-        logger.warning(f"Truncated value to {max_length} characters")
+        logger.warning(f"Truncated value to {max_length} characters: {cleaned[:50]}...")
     
     return cleaned if cleaned else None
 
@@ -379,6 +391,9 @@ def transform_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             df_clean['license_number'] = df_clean['license_number'].apply(
                 lambda x: clean_string_field(x, max_length=100)
             )
+
+            sample = df_clean['license_number'].head(10).tolist()
+            logger.info(f"Sample cleaned license numbers: {sample}")
         
         # Name of Establishment - required
         if 'name_of_establishment' in df_clean.columns:
