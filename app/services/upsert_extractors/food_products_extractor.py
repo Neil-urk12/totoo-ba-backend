@@ -63,6 +63,29 @@ def retry_on_failure(max_retries: int = 3, delay: float = 1.0):
         return wrapper
     return decorator
 
+def extract_data_from_file(file_path: str) -> pd.DataFrame:
+    """
+    Extract data from HTML or CSV files.
+    """
+    file_ext = os.path.splitext(file_path)[1].lower()
+    
+    if file_ext == '.csv':
+        # Handle CSV files
+        logger.info(f"📂 Processing CSV file: {os.path.basename(file_path)}")
+        try:
+            df = pd.read_csv(file_path, encoding='utf-8')
+            logger.info(f"✅ Extracted {len(df)} rows from CSV")
+            return df
+        except UnicodeDecodeError:
+            # Try alternative encodings
+            df = pd.read_csv(file_path, encoding='latin-1')
+            logger.info(f"✅ Extracted {len(df)} rows from CSV")
+            return df
+    else:
+        # Handle HTML files (existing code)
+        return extract_data_from_html(file_path)
+
+
 # ==============================================================================
 # EXTRACT DATA FROM HTML TABLE
 # ==============================================================================
@@ -654,7 +677,7 @@ async def process_single_file(file_path: str, use_upsert: bool = True):
         await create_tables()
         
         try:
-            df = extract_data_from_html(file_path)
+            df = extract_data_from_file(file_path)
         except Exception as e:
             logger.error(f"Failed to extract data: {e}")
             logger.debug(traceback.format_exc())
@@ -731,6 +754,12 @@ async def process_multiple_files(folder_path: str, use_upsert: bool = True,
         if file_pattern == "*.html":
             files.extend(list(path.glob("*.xls")))
             files.extend(list(path.glob("*.htm")))
+            files.extend(list(path.glob("*.csv")))
+        elif file_pattern == "*.*":
+            # If a generic pattern is used, include common file types
+            files.extend(list(path.glob("*.xls")))
+            files.extend(list(path.glob("*.htm")))
+            files.extend(list(path.glob("*.csv")))
         
         if not files:
             logger.warning(f"⚠️  No files matching '{file_pattern}' found in {folder_path}")
@@ -748,7 +777,7 @@ async def process_multiple_files(folder_path: str, use_upsert: bool = True,
             logger.info(f"{'='*60}")
             
             try:
-                df = extract_data_from_html(str(file_path))
+                df = extract_data_from_file(str(file_path))
                 
                 if not df.empty:
                     df_clean = transform_dataframe(df)
@@ -817,7 +846,7 @@ if __name__ == "__main__":
     FOLDER_PATH = "data/"
     
     # File pattern to match
-    FILE_PATTERN = "*.html"
+    FILE_PATTERN = "*.*"  # This will match all files, with specific extensions added in the processing function
     
     # Choose processing mode
     USE_UPSERT = True
