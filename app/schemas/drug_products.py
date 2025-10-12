@@ -3,11 +3,8 @@ from datetime import date
 from typing import Optional
 
 
-class ProductBase(BaseModel):
-    """Base schema for Product with required fields"""
+class DrugProductsBase(BaseModel):
     registration_number: str
-    product_type: Optional[str] = None
-    product_name: Optional[str] = None
     generic_name: Optional[str] = None
     brand_name: Optional[str] = None
     dosage_strength: Optional[str] = None
@@ -25,14 +22,11 @@ class ProductBase(BaseModel):
     expiry_date: Optional[date] = None
 
 
-class ProductCreate(ProductBase):
-    """Schema for creating a new Product record"""
+class DrugProductsCreate(DrugProductsBase):
     pass
 
 
-class ProductUpdate(BaseModel):
-    """Schema for updating an existing Product record"""
-    product_name: Optional[str] = None
+class DrugProductsUpdate(BaseModel):
     generic_name: Optional[str] = None
     brand_name: Optional[str] = None
     dosage_strength: Optional[str] = None
@@ -48,11 +42,8 @@ class ProductUpdate(BaseModel):
     application_type: Optional[str] = None
     issuance_date: Optional[date] = None
     expiry_date: Optional[date] = None
-    product_type: Optional[str] = None
 
 
-class Product(ProductBase):
-    """Schema for Product with all fields including the primary key"""
-    
+class DrugProductsResponse(DrugProductsBase):
     class Config:
         from_attributes = True
