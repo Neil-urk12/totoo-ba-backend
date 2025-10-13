@@ -20,6 +20,8 @@ app.add_middleware(
     allow_headers=settings.cors_allow_headers,
 )
 
+from app.core.database import test_connection_async
+
 @app.on_event("startup")
 async def startup():
     """Initialize database on startup"""
@@ -30,10 +32,16 @@ async def startup():
     print(f"🌍 Environment: {settings.environment}")
     print(f"🔧 Debug Mode: {settings.debug}")
     print(f"📊 Database: {settings.database_url.split('@')[1]}")  # Hide credentials
+    
+    # Test database connection
+    if await test_connection_async():
+        print("✅ Connected to database successfully")
+    else:
+        print("❌ Failed to connect to database")
 
 # Include routers
-# Commenting out products.router as the file is currently empty
-# app.include_router(products.router, prefix=settings.api_prefix)
+from app.api.products import router as products_router
+app.include_router(products_router, prefix=settings.api_prefix)
 
 @app.get("/")
 async def root():

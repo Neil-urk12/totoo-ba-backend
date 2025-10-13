@@ -25,8 +25,8 @@ try:
         echo=False,
         connect_args={
             "timeout": 60,  # Connection timeout in seconds
-            "command_timeout": 60  # Command timeout in seconds
-        }
+            "command_timeout": 60,  # Command timeout in seconds
+        },
     )
 
     with sync_engine.connect() as connection:
@@ -37,24 +37,17 @@ except Exception as e:
 
 
 # Sync sessionmaker
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=sync_engine
-)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=sync_engine)
 
 # Async sessionmaker
-async_session = sessionmaker(
-    async_engine, 
-    class_=AsyncSession,
-    expire_on_commit=False
-)
+async_session = sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
 
 # Base for declarative models
 Base = declarative_base()
 
 # Export the async engine with the same name for backward compatibility with async code
 engine = async_engine
+
 
 def get_db():
     db = SessionLocal()
@@ -63,19 +56,62 @@ def get_db():
     finally:
         db.close()
 
+
+from app.models.food_products import FoodProducts
+
+
 def test_connection():
     """
-    Test the database connection by executing a simple query.
+    Test the database connection by executing a query on food_products table.
     """
     try:
         with sync_engine.connect() as conn:
-            # Execute a simple query to test the connection
-            result = conn.execute(text("SELECT 1"))
-        print("Database connection successful.")
+            # Execute a query to test the connection and fetch 10 items from food_products
+            result = conn.execute(text("SELECT * FROM food_products LIMIT 10"))
+            rows = result.fetchall()
+            print(
+                f"Database connection successful. Found {len(rows)} records in food_products table."
+            )
         return True
     except Exception as e:
         print(f"Database connection failed: {e}")
         return False
+
+
+async def test_connection_async():
+    """
+    Async version of test_connection for use in async contexts.
+    Tests both raw SQL and ORM queries.
+    """
+    try:
+        # Test raw SQL query
+        async with async_engine.begin() as conn:
+            result = await conn.execute(text("SELECT * FROM food_products LIMIT 10"))
+            rows = result.fetchall()
+            print(
+                f"✅ Raw SQL query successful. Found {len(rows)} records in food_products table."
+            )
+
+        # Test ORM query
+        from sqlalchemy import select
+        from app.models.food_products import FoodProducts
+
+        async with async_session() as session:
+            query = (
+                select(FoodProducts)
+                .limit(10)
+            )
+            result = await session.execute(query)
+            products = result.scalars().all()
+            print(
+                f"✅ ORM query successful. Found {len(products)} food products using SQLAlchemy ORM."
+            )
+
+        return True
+    except Exception as e:
+        print(f"❌ Database connection failed: {e}")
+        return False
+
 
 print("Database initialization complete.")
 
