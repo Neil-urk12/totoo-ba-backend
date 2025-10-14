@@ -1,8 +1,13 @@
-from fastapi import APIRouter, HTTPException, File, UploadFile
+from fastapi import APIRouter, HTTPException, File, UploadFile, Depends
 from pydantic import BaseModel, Field
 from typing import Optional
 import os
 import json
+import io
+
+# Import dependencies and repository
+from app.api.deps import get_product_verification_service
+from app.services.product_verification_service import ProductVerificationService
 
 
 # Initialize router
@@ -93,7 +98,10 @@ class ImageVerificationResponse(BaseModel):
     summary="Verify Product by ID",
     description="Verifies if a product is legitimate using its ID and optional verification code"
 )
-async def verify_product(request: ProductVerificationRequest):
+async def verify_product(
+    request: ProductVerificationRequest,
+    verification_service: ProductVerificationService = Depends(get_product_verification_service)
+):
     """
     Verify a product using its ID and optional verification code.
     This endpoint checks if a product is legitimate and verified in our system.
@@ -103,14 +111,7 @@ async def verify_product(request: ProductVerificationRequest):
     - License number for establishments
     - Document tracking number for applications
     """
-    from app.services.fda_verification import search_fda_database, normalize_string
-    from sqlalchemy.ext.asyncio import AsyncSession
-    from sqlalchemy import select, or_
-    from app.core.database import async_session
-    from app.models import (
-        DrugProducts, FoodProducts, DrugIndustry, FoodIndustry,
-        MedicalDeviceIndustry, CosmeticIndustry, DrugsNewApplications
-    )
+    from app.services.fda_verification import normalize_string
     
     product_id = request.product_id.strip()
     verification_code = request.verification_code
@@ -125,57 +126,53 @@ async def verify_product(request: ProductVerificationRequest):
         )
 
     try:
-        # Search across all FDA database tables
-        search_fields = {
-            'registration_number': product_id,
-            'license_number': product_id,
-            'document_tracking_number': product_id
-        }
+        # Use service layer for business logic
+        search_results = await verification_service.verify_product_by_id(product_id)
         
-        # Use our existing FDA verification service
-        search_results = await search_fda_database(search_fields)
+        # Convert to legacy format for API compatibility
+        all_matches = [result.to_dict() for result in search_results]
         
         is_verified = False
         message = f"Product ID '{product_id}' not found in FDA database"
         details = {
-            "verification_method": "fda_database_lookup",
+            "verification_method": "repository_database_lookup",
             "verification_code_provided": verification_code is not None,
-            "search_results_count": len(search_results.get('alternatives', []))
+            "search_results_count": len(all_matches)
         }
         
-        # Check for exact matches (high confidence matches)
+        # Check for exact matches
         exact_matches = []
         partial_matches = []
         
-        for result in search_results.get('alternatives', []):
-            product = result['product']
-            similarity_score = result['similarity_score']
-            
-            # Check for exact registration/license number match
+        for match in all_matches:
             is_exact_match = False
             matched_field = None
             
-            if product.get('registration_number') and normalize_string(product['registration_number']) == normalize_string(product_id):
+            # Check for exact registration/license number match
+            if match.get('registration_number') and normalize_string(match['registration_number']) == normalize_string(product_id):
                 is_exact_match = True
                 matched_field = 'registration_number'
-            elif product.get('license_number') and normalize_string(product['license_number']) == normalize_string(product_id):
+            elif match.get('license_number') and normalize_string(match['license_number']) == normalize_string(product_id):
                 is_exact_match = True
                 matched_field = 'license_number'
-            elif product.get('document_tracking_number') and normalize_string(product['document_tracking_number']) == normalize_string(product_id):
+            elif match.get('document_tracking_number') and normalize_string(match['document_tracking_number']) == normalize_string(product_id):
                 is_exact_match = True
                 matched_field = 'document_tracking_number'
             
             if is_exact_match:
                 exact_matches.append({
-                    'product': product,
+                    'product': match,
                     'matched_field': matched_field,
-                    'similarity_score': similarity_score
+                    'relevance_score': match.get('relevance_score', 1.0)
                 })
-            elif similarity_score > 0.8:  # High similarity matches
-                partial_matches.append({
-                    'product': product,
-                    'similarity_score': similarity_score
-                })
+            else:
+                # Check for partial matches with high relevance
+                relevance = match.get('relevance_score', 0.0)
+                if relevance > 0.8:
+                    partial_matches.append({
+                        'product': match,
+                        'relevance_score': relevance
+                    })
         
         # Determine verification status
         if exact_matches:
@@ -204,13 +201,13 @@ async def verify_product(request: ProductVerificationRequest):
             })
             
         elif partial_matches:
-            # High similarity but not exact match
+            # High relevance but not exact match
             best_partial = partial_matches[0]
-            message = f"⚠️ Possible match found (similarity: {best_partial['similarity_score']:.0%}). Please verify details manually."
+            message = f"⚠️ Possible match found (relevance: {best_partial['relevance_score']:.0%}). Please verify details manually."
             details.update({
                 "possible_matches": partial_matches[:3],
                 "exact_match": False,
-                "confidence_score": int(best_partial['similarity_score'] * 100)
+                "confidence_score": int(best_partial['relevance_score'] * 100)
             })
             
         else:
@@ -242,14 +239,16 @@ async def verify_product(request: ProductVerificationRequest):
         
     except Exception as e:
         # Handle database errors gracefully
+        # Log the detailed error server-side for debugging
+        print(f"Repository query failed: {str(e)}")  # In production, use proper logging
         return ProductVerificationResponse(
             product_id=product_id,
             is_verified=False,
-            message=f"Error during verification: Database query failed",
+            message="Error during verification: Database query failed",
             details={
                 "error_code": "DATABASE_ERROR",
-                "error_message": str(e),
-                "verification_method": "fda_database_lookup"
+                "error_message": "Internal server error occurred during verification",
+                "verification_method": "repository_database_lookup"
             }
         )
 
@@ -261,7 +260,10 @@ async def verify_product(request: ProductVerificationRequest):
     summary="Get Product Verification Info",
     description="Retrieves verification status for a specific product ID"
 )
-async def get_product_verification(product_id: str):
+async def get_product_verification(
+    product_id: str,
+    verification_service: ProductVerificationService = Depends(get_product_verification_service)
+):
     """
     Get verification status for a specific product by its ID.
     This is an alternative way to check product verification status.
@@ -274,13 +276,48 @@ async def get_product_verification(product_id: str):
             details={"error_code": "INVALID_ID"}
         )
 
-    # TODO: Replace with actual database query
-    return ProductVerificationResponse(
-        product_id=product_id,
-        is_verified=True,
-        message=f"Product {product_id} verification status retrieved",
-        details={"verification_method": "id_lookup"}
-    )
+    try:
+        # Use service layer for business logic
+        search_results = await verification_service.verify_product_by_id(product_id)
+        
+        # Convert to legacy format for API compatibility
+        all_matches = [result.to_dict() for result in search_results]
+        
+        if all_matches:
+            # First match is already a dict from service layer
+            best_match = all_matches[0]
+            return ProductVerificationResponse(
+                product_id=product_id,
+                is_verified=True,
+                message=f"Product {product_id} found in FDA database",
+                details={
+                    "verification_method": "repository_id_lookup",
+                    "product_info": best_match,
+                    "total_matches": len(all_matches)
+                }
+            )
+        else:
+            return ProductVerificationResponse(
+                product_id=product_id,
+                is_verified=False,
+                message=f"Product {product_id} not found in FDA database",
+                details={
+                    "verification_method": "repository_id_lookup",
+                    "total_matches": 0
+                }
+            )
+    
+    except Exception as e:
+        print(f"Repository query failed: {str(e)}")
+        return ProductVerificationResponse(
+            product_id=product_id,
+            is_verified=False,
+            message="Error during verification lookup",
+            details={
+                "error_code": "DATABASE_ERROR",
+                "verification_method": "repository_id_lookup"
+            }
+        )
 
 
 # Image verification endpoint using Gemini 2.5 Flash
@@ -290,7 +327,10 @@ async def get_product_verification(product_id: str):
     summary="Verify Product from Image",
     description="Verifies a product by analyzing an uploaded image using Gemini 2.5 Flash AI"
 )
-async def verify_product_image(image: UploadFile = File(...)):
+async def verify_product_image(
+    image: UploadFile = File(...),
+    verification_service: ProductVerificationService = Depends(get_product_verification_service)
+):
     """
     Verify a product by analyzing an uploaded image.
     Uses Gemini 2.5 Flash to extract text and match against FDA database.
@@ -300,7 +340,7 @@ async def verify_product_image(image: UploadFile = File(...)):
     if not GEMINI_AVAILABLE or not client:
         raise HTTPException(
             status_code=500,
-            detail="AI verification service not available. Please set GEMINI_API_KEY environment variable and install google-genai package."
+            detail="AI verification service temporarily unavailable. Please try again later."
         )
 
     # Validate image file
@@ -310,16 +350,35 @@ async def verify_product_image(image: UploadFile = File(...)):
             detail=f"Invalid file type: {image.content_type}. Please upload an image file."
         )
 
+    # Check file size (max 5MB)
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+    image.file.seek(0, 2)  # Move to end of file to get size
+    file_size = image.file.tell()
+    image.file.seek(0)  # Move back to beginning of file
+    
+    if file_size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="File too large. Maximum size is 5MB."
+        )
+
     try:
         # Read uploaded image as bytes
         image_bytes = await image.read()
         
+        # Validate actual file content matches claimed content type
+        if not validate_image_content(image_bytes, image.content_type):
+            raise HTTPException(
+                status_code=400,
+                detail="File type mismatch. The uploaded file does not match the declared content type."
+            )
+        
         # Step 1: Extract structured data directly from image using Gemini
         extracted_data = await extract_fields_from_image(image_bytes, image.content_type)
         
-        # Step 2: Query FDA database with extracted fields
-        from app.services.fda_verification import search_fda_database
-        fuzzy_results = await search_fda_database(extracted_data['extracted_fields'])
+        # Step 2: Query FDA database with extracted fields using service
+        search_results = await verification_service.search_and_rank_products(extracted_data['extracted_fields'])
+        fuzzy_results = [result.to_dict() for result in search_results]
         
         # Step 3: AI-assisted intelligent matching
         ai_verification = await ai_assisted_verification(
@@ -332,8 +391,8 @@ async def verify_product_image(image: UploadFile = File(...)):
         matched_product = None
         if ai_verification['matched_product_index'] is not None:
             idx = ai_verification['matched_product_index']
-            if idx < len(fuzzy_results.get('alternatives', [])):
-                matched_product = fuzzy_results['alternatives'][idx]['product']
+            if idx < len(fuzzy_results):
+                matched_product = fuzzy_results[idx]
         
         # Determine verification status
         verification_status = 'not_found'
@@ -348,13 +407,15 @@ async def verify_product_image(image: UploadFile = File(...)):
             matched_product=matched_product,
             extracted_fields=ai_verification['extracted_fields'],
             ai_reasoning=ai_verification['reasoning'],
-            alternative_matches=fuzzy_results.get('alternatives', [])[:3]
+            alternative_matches=fuzzy_results[:3]
         )
         
     except Exception as e:
+        # Log the detailed error server-side for debugging
+        print(f"Error processing image: {str(e)}")  # In production, use proper logging
         raise HTTPException(
             status_code=500,
-            detail=f"Error processing image: {str(e)}"
+            detail="Image verification failed. Please try again."
         )
     finally:
         await image.close()
@@ -409,6 +470,8 @@ Also provide the complete raw text visible in the image for fallback matching.""
         )
         
         extracted_fields: ExtractedFields = response.parsed
+
+        print(f"Extracted fields {extracted_fields}")
         
         # Also get raw text for additional context
         raw_text_prompt = "Extract all visible text from this image as plain text, preserving layout where possible."
@@ -424,9 +487,11 @@ Also provide the complete raw text visible in the image for fallback matching.""
         }
         
     except Exception as e:
+        # Log the detailed error server-side for debugging
+        print(f"Gemini extraction failed: {str(e)}")  # In production, use proper logging
         raise HTTPException(
             status_code=500,
-            detail=f"Gemini extraction failed: {str(e)}"
+            detail="Image processing failed. Please try again."
         )
 
 
@@ -436,11 +501,11 @@ async def ai_assisted_verification(extracted_fields: dict, raw_text: str, fuzzy_
     """
     
     alternatives_text = "No potential matches found in database."
-    if fuzzy_results.get('alternatives'):
-        alternatives_text = json.dumps(fuzzy_results['alternatives'][:10], indent=2, ensure_ascii=False)
+    if fuzzy_results:
+        alternatives_text = json.dumps(fuzzy_results[:10], indent=2, ensure_ascii=False)
     
     # Debug logging for candidates being sent to Gemini
-    print("FDA candidates given to Gemini:", fuzzy_results.get('alternatives', []))
+    print("FDA candidates given to Gemini:", fuzzy_results)
     
     prompt = f"""You are an FDA Philippines product verification expert with expertise in fuzzy matching.
 
@@ -508,12 +573,36 @@ Provide structured output with your decision and clear reasoning."""
         }
         
     except Exception as e:
+        # Log the detailed error server-side for debugging
+        print(f"AI verification failed: {str(e)}")  # In production, use proper logging
         return {
             "matched_product_index": None,
             "confidence": 0,
             "extracted_fields": extracted_fields,
-            "reasoning": f"AI verification failed: {str(e)}"
+            "reasoning": "AI verification temporarily unavailable. Please try again later."
         }
 
 
+def validate_image_content(file_bytes: bytes, mime_type: str) -> bool:
+    """
+    Validate that the file content matches the expected image type using magic numbers.
+    """
+    # Define magic numbers for common image formats
+    magic_numbers = {
+        "image/jpeg": bytes([0xFF, 0xD8, 0xFF]),
+        "image/png": bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+        "image/gif": bytes([0x47, 0x49, 0x46, 0x38]),  # GIF87a or GIF89a
+        "image/webp": bytes([0x52, 0x49, 0x46, 0x46])  # First 4 bytes of WebP files
+    }
+    
+    if mime_type not in magic_numbers:
+        return False
+    
+    expected_header = magic_numbers[mime_type]
+    return file_bytes.startswith(expected_header)
+
+
+
+
 __all__ = ["router"]
+

@@ -3,15 +3,7 @@ import re
 from sqlalchemy import or_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import async_session
-from app.models import (
-    DrugProducts,
-    FoodProducts,
-    DrugIndustry,
-    FoodIndustry,
-    MedicalDeviceIndustry,
-    CosmeticIndustry,
-    DrugsNewApplications,
-)
+from app.api.repository.products_repository import ProductsRepository
 from difflib import SequenceMatcher
 from typing import List, Dict, Any, Optional
 
@@ -98,66 +90,40 @@ def hybrid_similarity(str1: str, str2: str) -> float:
 
 
 async def search_drug_products(
-    session: AsyncSession, extracted_fields: dict
+    repository: ProductsRepository, extracted_fields: dict
 ) -> List[Dict]:
     """Search drug products with improved matching."""
     results = []
-
-    conditions = []
-
+    
+    # Construct search criteria for the repository
+    search_criteria = {}
     registration_number = (extracted_fields.get("registration_number") or "").strip()
     brand_name = extracted_fields.get("brand_name", "").strip()
     generic_name = extracted_fields.get("generic_name", "").strip()
     manufacturer = extracted_fields.get("manufacturer", "").strip()
 
     if registration_number:
-        conditions.append(
-            DrugProducts.registration_number.ilike(f"%{registration_number}%")
-        )
+        search_criteria['registration_number'] = registration_number
 
     if brand_name:
-        brand_tokens = normalize_text(brand_name).split()
-        brand_conditions = []
-        for token in brand_tokens:
-            if len(token) >= 2:
-                brand_conditions.append(DrugProducts.brand_name.ilike(f"%{token}%"))
-        if brand_conditions:
-            conditions.append(or_(*brand_conditions))
+        search_criteria['brand_name'] = brand_name
 
     if generic_name:
-        generic_tokens = normalize_text(generic_name).split()
-        generic_conditions = []
-        for token in generic_tokens:
-            if len(token) >= 3:
-                generic_conditions.append(DrugProducts.generic_name.ilike(f"%{token}%"))
-        if generic_conditions:
-            conditions.append(or_(*generic_conditions))
+        search_criteria['generic_name'] = generic_name
 
+    # Use the repository to perform search
+    raw_results = await repository._search_drug_products(repository.session, search_criteria)
+    
+    # If we have a manufacturer to search for, we need to do additional filtering based on manufacturer fields
     if manufacturer:
-        conditions.append(
-            or_(
-                DrugProducts.manufacturer.ilike(f"%{manufacturer}%"),
-                DrugProducts.trader.ilike(f"%{manufacturer}%"),
-                DrugProducts.importer.ilike(f"%{manufacturer}%"),
-            )
-        )
+        filtered_raw_results = []
+        for product in raw_results:
+            manufacturer_fields = [product.manufacturer, product.trader, product.importer]
+            if any(manufacturer and field and manufacturer.lower() in field.lower() for field in manufacturer_fields):
+                filtered_raw_results.append(product)
+        raw_results = filtered_raw_results
 
-    if not conditions:
-        query = select(DrugProducts).limit(50)
-        result = await session.execute(query)
-        products = result.scalars().all()
-    else:
-        query = select(DrugProducts).where(or_(*conditions)).limit(25)
-        result = await session.execute(query)
-        products = result.scalars().all()
-
-        # If the filtered query returns no results, perform a full table scan as fallback
-        if not products:
-            fallback_query = select(DrugProducts).limit(50)
-            fallback_result = await session.execute(fallback_query)
-            products = fallback_result.scalars().all()
-
-    for product in products:
+    for product in raw_results:
         scores = []
 
         if registration_number and product.registration_number:
@@ -214,13 +180,13 @@ async def search_drug_products(
 
 
 async def search_food_products(
-    session: AsyncSession, extracted_fields: dict
+    repository: ProductsRepository, extracted_fields: dict
 ) -> List[Dict]:
     """Search food products table with improved fuzzy matching."""
     results = []
 
-    conditions = []
-
+    # Construct search criteria for the repository
+    search_criteria = {}
     registration_number = (extracted_fields.get("registration_number") or "").strip()
     brand_name = extracted_fields.get("brand_name", "").strip()
     generic_name = extracted_fields.get("generic_name", "").strip()
@@ -232,59 +198,21 @@ async def search_food_products(
 
     # If we have registration number, prioritize exact search
     if registration_number:
-        conditions.append(
-            FoodProducts.registration_number.ilike(f"%{registration_number}%")
-        )
+        search_criteria['registration_number'] = registration_number
 
-    # Build more flexible brand name search
     if brand_name:
-        # Extract tokens for partial matching
-        brand_tokens = normalize_text(brand_name).split()
-        brand_conditions = []
-        for token in brand_tokens:
-            if len(token) >= 2:  # Only use tokens with 2+ chars
-                brand_conditions.append(FoodProducts.brand_name.ilike(f"%{token}%"))
-        if brand_conditions:
-            conditions.append(or_(*brand_conditions))
+        search_criteria['brand_name'] = brand_name
 
-    # Product name / generic name search with token matching
     if product_name:
-        product_tokens = normalize_text(product_name).split()
-        product_conditions = []
-        for token in product_tokens:
-            if len(token) >= 3:  # Use meaningful tokens
-                product_conditions.extend(
-                    [
-                        FoodProducts.product_name.ilike(f"%{token}%"),
-                        FoodProducts.brand_name.ilike(f"%{token}%"),
-                    ]
-                )
-        if product_conditions:
-            conditions.append(or_(*product_conditions))
+        search_criteria['product_name'] = product_name
 
-    # Company/manufacturer search
-    if company_name or manufacturer:
-        company = company_name or manufacturer
-        conditions.append(FoodProducts.company_name.ilike(f"%{company}%"))
+    if company_name:
+        search_criteria['company_name'] = company_name
 
-    # If no conditions, do a broader search
-    if not conditions:
-        # Fallback: search all food products (limit results)
-        query = select(FoodProducts).limit(50)
-        result = await session.execute(query)
-        products = result.scalars().all()
-    else:
-        query = select(FoodProducts).where(or_(*conditions)).limit(25)
-        result = await session.execute(query)
-        products = result.scalars().all()
+    # Use the repository to perform search
+    raw_results = await repository._search_food_products(repository.session, search_criteria)
 
-        # If the filtered query returns no results, perform a full table scan as fallback
-        if not products:
-            fallback_query = select(FoodProducts).limit(50)
-            fallback_result = await session.execute(fallback_query)
-            products = fallback_result.scalars().all()
-
-    for product in products:
+    for product in raw_results:
         scores = []
 
         # Registration number (highest priority - exact match)
@@ -352,7 +280,7 @@ async def search_food_products(
 
 
 async def search_establishments(
-    session: AsyncSession, extracted_fields: dict
+    repository: ProductsRepository, extracted_fields: dict
 ) -> List[Dict]:
     """Search establishment tables (drug, food, medical device, cosmetic industries) for matches."""
     results = []
@@ -362,152 +290,246 @@ async def search_establishments(
     owner = extracted_fields.get("owner", "").strip()
     address = extracted_fields.get("address", "").strip()
 
-    # Define establishment models to search
-    establishment_models = [
-        (DrugIndustry, "drug_industry"),
-        (FoodIndustry, "food_industry"),
-        (MedicalDeviceIndustry, "medical_device_industry"),
-        (CosmeticIndustry, "cosmetic_industry"),
-    ]
+    # Prepare search criteria for the repository
+    search_criteria = {}
+    if license_number:
+        search_criteria['license_number'] = license_number
 
-    for model_class, industry_type in establishment_models:
-        conditions = []
+    if establishment_name:
+        search_criteria['company_name'] = establishment_name  # This maps to name_of_establishment in the repository
 
-        if license_number:
-            conditions.append(model_class.license_number.ilike(f"%{license_number}%"))
+    # Search drug industry (establishments)
+    drug_industry_results = await repository._search_drug_industry(repository.session, search_criteria)
+    for establishment in drug_industry_results:
+        scores = []
 
-        if establishment_name:
-            conditions.append(
-                model_class.name_of_establishment.ilike(f"%{establishment_name}%")
+        if license_number and establishment.license_number:
+            scores.append(
+                calculate_similarity(
+                    license_number, establishment.license_number
+                )
+            )
+        if establishment_name and establishment.name_of_establishment:
+            scores.append(
+                calculate_similarity(
+                    establishment_name, establishment.name_of_establishment
+                )
+            )
+        if owner and establishment.owner:
+            scores.append(calculate_similarity(owner, establishment.owner))
+        if address and establishment.address:
+            scores.append(calculate_similarity(address, establishment.address))
+
+        avg_score = sum(scores) / len(scores) if scores else 0.0
+
+        if avg_score > 0.1:  # Lower threshold for more results
+            results.append(
+                {
+                    "product": {
+                        "type": "drug_industry",
+                        "license_number": establishment.license_number,
+                        "name_of_establishment": establishment.name_of_establishment,
+                        "owner": establishment.owner,
+                        "address": establishment.address,
+                        "region": establishment.region,
+                        "activity": establishment.activity,
+                        "expiry_date": safe_date_format(establishment.expiry_date),
+                    },
+                    "similarity_score": round(avg_score, 2),
+                }
             )
 
-        if owner:
-            conditions.append(model_class.owner.ilike(f"%{owner}%"))
+    # Search food industry (establishments)
+    food_industry_results = await repository._search_food_industry(repository.session, search_criteria)
+    for establishment in food_industry_results:
+        scores = []
 
-        if address:
-            conditions.append(model_class.address.ilike(f"%{address}%"))
+        if license_number and establishment.license_number:
+            scores.append(
+                calculate_similarity(
+                    license_number, establishment.license_number
+                )
+            )
+        if establishment_name and establishment.name_of_establishment:
+            scores.append(
+                calculate_similarity(
+                    establishment_name, establishment.name_of_establishment
+                )
+            )
+        if owner and establishment.owner:
+            scores.append(calculate_similarity(owner, establishment.owner))
+        if address and establishment.address:
+            scores.append(calculate_similarity(address, establishment.address))
 
-        if conditions:
-            query = select(model_class).where(or_(*conditions)).limit(25)
-            result = await session.execute(query)
-            establishments = result.scalars().all()
+        avg_score = sum(scores) / len(scores) if scores else 0.0
 
-            for establishment in establishments:
-                scores = []
+        if avg_score > 0.1:  # Lower threshold for more results
+            results.append(
+                {
+                    "product": {
+                        "type": "food_industry",
+                        "license_number": establishment.license_number,
+                        "name_of_establishment": establishment.name_of_establishment,
+                        "owner": establishment.owner,
+                        "address": establishment.address,
+                        "region": establishment.region,
+                        "activity": establishment.activity,
+                        "expiry_date": safe_date_format(establishment.expiry_date),
+                    },
+                    "similarity_score": round(avg_score, 2),
+                }
+            )
 
-                if license_number and establishment.license_number:
-                    scores.append(
-                        calculate_similarity(
-                            license_number, establishment.license_number
-                        )
-                    )
-                if establishment_name and establishment.name_of_establishment:
-                    scores.append(
-                        calculate_similarity(
-                            establishment_name, establishment.name_of_establishment
-                        )
-                    )
-                if owner and establishment.owner:
-                    scores.append(calculate_similarity(owner, establishment.owner))
-                if address and establishment.address:
-                    scores.append(calculate_similarity(address, establishment.address))
+    # Search medical device industry
+    medical_device_results = await repository._search_medical_device_industry(repository.session, search_criteria)
+    for establishment in medical_device_results:
+        scores = []
 
-                avg_score = sum(scores) / len(scores) if scores else 0.0
+        if license_number and establishment.license_number:
+            scores.append(
+                calculate_similarity(
+                    license_number, establishment.license_number
+                )
+            )
+        if establishment_name and establishment.name_of_establishment:
+            scores.append(
+                calculate_similarity(
+                    establishment_name, establishment.name_of_establishment
+                )
+            )
+        if owner and establishment.owner:
+            scores.append(calculate_similarity(owner, establishment.owner))
+        if address and establishment.address:
+            scores.append(calculate_similarity(address, establishment.address))
 
-                if avg_score > 0.1:  # Lower threshold for more results
-                    results.append(
-                        {
-                            "product": {
-                                "type": industry_type,
-                                "license_number": establishment.license_number,
-                                "name_of_establishment": establishment.name_of_establishment,
-                                "owner": establishment.owner,
-                                "address": establishment.address,
-                                "region": establishment.region,
-                                "activity": establishment.activity,
-                                "expiry_date": safe_date_format(establishment.expiry_date),
-                            },
-                            "similarity_score": round(avg_score, 2),
-                        }
-                    )
+        avg_score = sum(scores) / len(scores) if scores else 0.0
+
+        if avg_score > 0.1:  # Lower threshold for more results
+            results.append(
+                {
+                    "product": {
+                        "type": "medical_device_industry",
+                        "license_number": establishment.license_number,
+                        "name_of_establishment": establishment.name_of_establishment,
+                        "owner": establishment.owner,
+                        "address": establishment.address,
+                        "region": establishment.region,
+                        "activity": establishment.activity,
+                        "expiry_date": safe_date_format(establishment.expiry_date),
+                    },
+                    "similarity_score": round(avg_score, 2),
+                }
+            )
+
+    # Search cosmetic industry
+    cosmetic_results = await repository._search_cosmetic_industry(repository.session, search_criteria)
+    for establishment in cosmetic_results:
+        scores = []
+
+        if license_number and establishment.license_number:
+            scores.append(
+                calculate_similarity(
+                    license_number, establishment.license_number
+                )
+            )
+        if establishment_name and establishment.name_of_establishment:
+            scores.append(
+                calculate_similarity(
+                    establishment_name, establishment.name_of_establishment
+                )
+            )
+        if owner and establishment.owner:
+            scores.append(calculate_similarity(owner, establishment.owner))
+        if address and establishment.address:
+            scores.append(calculate_similarity(address, establishment.address))
+
+        avg_score = sum(scores) / len(scores) if scores else 0.0
+
+        if avg_score > 0.1:  # Lower threshold for more results
+            results.append(
+                {
+                    "product": {
+                        "type": "cosmetic_industry",
+                        "license_number": establishment.license_number,
+                        "name_of_establishment": establishment.name_of_establishment,
+                        "owner": establishment.owner,
+                        "address": establishment.address,
+                        "region": establishment.region,
+                        "activity": establishment.activity,
+                        "expiry_date": safe_date_format(establishment.expiry_date),
+                    },
+                    "similarity_score": round(avg_score, 2),
+                }
+            )
 
     return results
 
 
 async def search_drug_applications(
-    session: AsyncSession, extracted_fields: dict
+    repository: ProductsRepository, extracted_fields: dict
 ) -> List[Dict]:
     """Search drug new applications table for matches."""
     results = []
 
-    conditions = []
-
+    # Prepare search criteria for the repository
+    search_criteria = {}
     tracking_number = (extracted_fields.get("document_tracking_number") or "").strip()
     brand_name = (extracted_fields.get("brand_name") or "").strip()
     generic_name = (extracted_fields.get("generic_name") or "").strip()
     applicant_company = (extracted_fields.get("applicant_company") or "").strip()
 
     if tracking_number:
-        conditions.append(
-            DrugsNewApplications.document_tracking_number.ilike(f"%{tracking_number}%")
-        )
+        search_criteria['document_tracking_number'] = tracking_number
 
     if brand_name:
-        conditions.append(DrugsNewApplications.brand_name.ilike(f"%{brand_name}%"))
-
-    if generic_name:
-        conditions.append(DrugsNewApplications.generic_name.ilike(f"%{generic_name}%"))
+        search_criteria['brand_name'] = brand_name
 
     if applicant_company:
-        conditions.append(
-            DrugsNewApplications.applicant_company.ilike(f"%{applicant_company}%")
-        )
+        search_criteria['company_name'] = applicant_company  # Maps to applicant
 
-    if conditions:
-        query = select(DrugsNewApplications).where(or_(*conditions)).limit(25)
-        result = await session.execute(query)
-        applications = result.scalars().all()
+    # Use the repository to perform search
+    raw_results = await repository._search_drug_applications(repository.session, search_criteria)
 
-        for application in applications:
-            scores = []
+    for application in raw_results:
+        scores = []
 
-            if tracking_number and application.document_tracking_number:
-                scores.append(
-                    calculate_similarity(
-                        tracking_number, application.document_tracking_number
-                    )
+        if tracking_number and application.document_tracking_number:
+            scores.append(
+                calculate_similarity(
+                    tracking_number, application.document_tracking_number
                 )
-            if brand_name and application.brand_name:
-                scores.append(calculate_similarity(brand_name, application.brand_name))
-            if generic_name and application.generic_name:
-                scores.append(
-                    calculate_similarity(generic_name, application.generic_name)
+            )
+        if brand_name and application.brand_name:
+            scores.append(calculate_similarity(brand_name, application.brand_name))
+        if generic_name and application.generic_name:
+            scores.append(
+                calculate_similarity(generic_name, application.generic_name)
+            )
+        if applicant_company and application.applicant:
+            scores.append(
+                calculate_similarity(
+                    applicant_company, application.applicant
                 )
-            if applicant_company and application.applicant_company:
-                scores.append(
-                    calculate_similarity(
-                        applicant_company, application.applicant_company
-                    )
-                )
+            )
 
-            avg_score = sum(scores) / len(scores) if scores else 0.0
+        avg_score = sum(scores) / len(scores) if scores else 0.0
 
-            if avg_score > 0.1:  # Lower threshold for more results
-                results.append(
-                    {
-                        "product": {
-                            "type": "drug_application",
-                            "document_tracking_number": application.document_tracking_number,
-                            "brand_name": application.brand_name,
-                            "generic_name": application.generic_name,
-                            "applicant_company": application.applicant_company,
-                            "dosage_form": application.dosage_form,
-                            "dosage_strength": application.dosage_strength,
-                            "application_type": application.application_type,
-                        },
-                        "similarity_score": round(avg_score, 2),
-                    }
-                )
+        if avg_score > 0.1:  # Lower threshold for more results
+            results.append(
+                {
+                    "product": {
+                        "type": "drug_application",
+                        "document_tracking_number": application.document_tracking_number,
+                        "brand_name": application.brand_name,
+                        "generic_name": application.generic_name,
+                        "applicant_company": application.applicant,
+                        "dosage_form": application.dosage_form,
+                        "dosage_strength": application.dosage_strength,
+                        "application_type": application.application_type,
+                    },
+                    "similarity_score": round(avg_score, 2),
+                }
+            )
 
     return results
 
@@ -540,27 +562,30 @@ async def search_fda_database(extracted_fields: dict) -> dict:
     try:
         # Use a single session for all operations to avoid concurrent issues
         async with async_session() as session:
+            # Create repository instance
+            repository = ProductsRepository(session)
+            
             # Search each table sequentially to avoid concurrent session operations
             try:
-                drug_results = await search_drug_products(session, extracted_fields)
+                drug_results = await search_drug_products(repository, extracted_fields)
                 all_results.extend(drug_results)
             except Exception as e:
                 print(f"Search error: {e}")
 
             try:
-                food_results = await search_food_products(session, extracted_fields)
+                food_results = await search_food_products(repository, extracted_fields)
                 all_results.extend(food_results)
             except Exception as e:
                 print(f"Search error: {e}")
 
             try:
-                establishment_results = await search_establishments(session, extracted_fields)
+                establishment_results = await search_establishments(repository, extracted_fields)
                 all_results.extend(establishment_results)
             except Exception as e:
                 print(f"Search error: {e}")
 
             try:
-                application_results = await search_drug_applications(session, extracted_fields)
+                application_results = await search_drug_applications(repository, extracted_fields)
                 all_results.extend(application_results)
             except Exception as e:
                 print(f"Search error: {e}")

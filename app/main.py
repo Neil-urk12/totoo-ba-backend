@@ -25,13 +25,21 @@ from app.core.database import test_connection_async
 @app.on_event("startup")
 async def startup():
     """Initialize database on startup"""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
     print(f"🚀 {settings.app_name} v{settings.app_version}")
     print(f"🌍 Environment: {settings.environment}")
     print(f"🔧 Debug Mode: {settings.debug}")
     print(f"📊 Database: {settings.database_url.split('@')[1]}")  # Hide credentials
+    
+    # Only try to create tables if we have a valid engine
+    if engine is not None:
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            print("✅ Database tables initialized")
+        except Exception as e:
+            print(f"❌ Failed to initialize database tables: {e}")
+    else:
+        print("❌ No database engine available - skipping table creation")
     
     # Test database connection
     if await test_connection_async():
