@@ -56,12 +56,12 @@ class ProductsRepository(MultiTableRepository):
             Dictionary with table names as keys and lists of matching records
         """
         results = {}
+
+        # Search food products
+        results['food_products'] = await self._search_food_products(self.session, search_criteria)
         
         # Search drug products
         results['drug_products'] = await self._search_drug_products(self.session, search_criteria)
-        
-        # Search food products
-        results['food_products'] = await self._search_food_products(self.session, search_criteria)
         
         # Search drug industry (establishments)
         results['drug_industry'] = await self._search_drug_industry(self.session, search_criteria)
@@ -81,52 +81,166 @@ class ProductsRepository(MultiTableRepository):
         return results
     
     async def _search_drug_products(self, session: AsyncSession, criteria: Dict[str, Any]) -> List[DrugProducts]:
-        """Search in drug products table."""
-        conditions = []
+        """Search in drug products table with word-level tokenized matching."""
+        # Build separate condition groups for AND logic
+        brand_conditions = []
+        product_conditions = []
+        other_conditions = []
         
         if criteria.get('registration_number'):
-            conditions.append(DrugProducts.registration_number.ilike(f"%{criteria['registration_number']}%"))
+            other_conditions.append(DrugProducts.registration_number.ilike(f"%{criteria['registration_number']}%"))
         
         if criteria.get('brand_name'):
-            conditions.append(DrugProducts.brand_name.ilike(f"%{criteria['brand_name']}%"))
+            brand = criteria['brand_name']
+            if len(brand) <= 3:
+                brand_conditions.append(
+                    or_(
+                        DrugProducts.brand_name.ilike(f"{brand} %"),
+                        DrugProducts.brand_name.ilike(f"% {brand} %"),
+                        DrugProducts.brand_name.ilike(f"% {brand}"),
+                        DrugProducts.brand_name.ilike(f"{brand}"),
+                    )
+                )
+            else:
+                brand_conditions.append(DrugProducts.brand_name.ilike(f"%{brand}%"))
         
         if criteria.get('generic_name'):
-            conditions.append(DrugProducts.generic_name.ilike(f"%{criteria['generic_name']}%"))
+            product_conditions.append(DrugProducts.generic_name.ilike(f"%{criteria['generic_name']}%"))
+        
+        if criteria.get('product_description'):
+            words = criteria['product_description'].strip().split()
+            if words:
+                word_conditions = []
+                for word in words:
+                    if len(word) >= 3:
+                        word_conditions.append(DrugProducts.generic_name.ilike(f"%{word}%"))
+                if word_conditions:
+                    product_conditions.append(or_(*word_conditions))
         
         if criteria.get('company_name'):
-            conditions.append(DrugProducts.manufacturer.ilike(f"%{criteria['company_name']}%"))
+            other_conditions.append(DrugProducts.manufacturer.ilike(f"%{criteria['company_name']}%"))
         
-        if not conditions:
+        if criteria.get('manufacturer'):
+            other_conditions.append(DrugProducts.manufacturer.ilike(f"%{criteria['manufacturer']}%"))
+        
+        # Build final query
+        all_conditions = []
+        
+        if brand_conditions:
+            all_conditions.append(or_(*brand_conditions) if len(brand_conditions) > 1 else brand_conditions[0])
+        
+        if product_conditions:
+            all_conditions.append(or_(*product_conditions) if len(product_conditions) > 1 else product_conditions[0])
+        
+        if other_conditions:
+            all_conditions.extend(other_conditions)
+        
+        if not all_conditions:
             return []
         
-        query = select(DrugProducts).where(or_(*conditions)).limit(50)
-        result = await session.execute(query)
+        # Use AND if we have brand + product, otherwise OR
+        if brand_conditions and product_conditions:
+            query = select(DrugProducts).where(and_(*all_conditions)).limit(50)
+        else:
+            query = select(DrugProducts).where(or_(*all_conditions)).limit(50)
         
+        result = await session.execute(query)
         return result.scalars().all()
     
     async def _search_food_products(self, session: AsyncSession, criteria: Dict[str, Any]) -> List[FoodProducts]:
-        """Search in food products table."""
-        conditions = []
+        """Search in food products table with word-level tokenized matching."""
+        print(f"\n=== DEBUG: _search_food_products called ===")
+        print(f"Criteria: {criteria}")
+        
+        # Build separate condition groups for AND logic
+        brand_conditions = []
+        product_conditions = []
+        other_conditions = []
         
         if criteria.get('registration_number'):
-            conditions.append(FoodProducts.registration_number.ilike(f"%{criteria['registration_number']}%"))
+            other_conditions.append(FoodProducts.registration_number.ilike(f"%{criteria['registration_number']}%"))
         
-        if criteria.get('product_name'):
-            conditions.append(FoodProducts.product_name.ilike(f"%{criteria['product_name']}%"))
-        
+        # Brand name matching (required if brand is provided)
         if criteria.get('brand_name'):
-            conditions.append(FoodProducts.product_name.ilike(f"%{criteria['brand_name']}%"))
+            brand = criteria['brand_name']
+            if len(brand) <= 3:
+                # Word boundary matching for short brands
+                brand_conditions.append(
+                    or_(
+                        FoodProducts.brand_name.ilike(f"{brand} %"),
+                        FoodProducts.brand_name.ilike(f"% {brand} %"),
+                        FoodProducts.brand_name.ilike(f"% {brand}"),
+                        FoodProducts.brand_name.ilike(f"{brand}"),
+                    )
+                )
+            else:
+                brand_conditions.append(FoodProducts.brand_name.ilike(f"%{brand}%"))
+        
+        # Product name/description matching
+        if criteria.get('product_name'):
+            product_conditions.append(FoodProducts.product_name.ilike(f"%{criteria['product_name']}%"))
+        
+        if criteria.get('product_description'):
+            # Word-level tokenized matching for product description
+            words = criteria['product_description'].strip().split()
+            if words:
+                # Require at least 2 out of 3 words to match (for flexibility)
+                word_conditions = []
+                for word in words:
+                    if len(word) >= 3:
+                        word_conditions.append(FoodProducts.product_name.ilike(f"%{word}%"))
+                
+                if word_conditions:
+                    # Use OR for individual words, but they'll be ANDed with brand
+                    product_conditions.append(or_(*word_conditions))
         
         if criteria.get('company_name'):
-            conditions.append(FoodProducts.company_name.ilike(f"%{criteria['company_name']}%"))
+            other_conditions.append(FoodProducts.company_name.ilike(f"%{criteria['company_name']}%"))
         
-        if not conditions:
+        if criteria.get('manufacturer'):
+            other_conditions.append(FoodProducts.company_name.ilike(f"%{criteria['manufacturer']}%"))
+        
+        # Build final query with AND logic between groups
+        all_conditions = []
+        
+        # If brand is specified, it MUST match
+        if brand_conditions:
+            all_conditions.append(or_(*brand_conditions) if len(brand_conditions) > 1 else brand_conditions[0])
+        
+        # If product description is specified, at least one word must match
+        if product_conditions:
+            all_conditions.append(or_(*product_conditions) if len(product_conditions) > 1 else product_conditions[0])
+        
+        # Other conditions are optional (OR)
+        if other_conditions:
+            all_conditions.extend(other_conditions)
+        
+        if not all_conditions:
+            print("  No conditions generated, returning empty list")
             return []
         
-        query = select(FoodProducts).where(or_(*conditions)).limit(50)
-        result = await session.execute(query)
+        print(f"  Brand conditions: {len(brand_conditions)}")
+        print(f"  Product conditions: {len(product_conditions)}")
+        print(f"  Other conditions: {len(other_conditions)}")
         
-        return result.scalars().all()
+        # Use AND if we have brand + product, otherwise OR
+        if brand_conditions and product_conditions:
+            # Brand AND Product (both must match)
+            query = select(FoodProducts).where(and_(*all_conditions)).limit(50)
+            print("  Using AND logic (brand + product)")
+        else:
+            # Fallback to OR if only one type
+            query = select(FoodProducts).where(or_(*all_conditions)).limit(50)
+            print("  Using OR logic (single criteria type)")
+        
+        result = await session.execute(query)
+        results = result.scalars().all()
+        print(f"  Food products found: {len(results)}")
+        if results:
+            for i, prod in enumerate(results[:5]):
+                print(f"    [{i}] Brand: {prod.brand_name}, Product: {prod.product_name}")
+        
+        return results
     
     async def _search_drug_industry(self, session: AsyncSession, criteria: Dict[str, Any]) -> List[DrugIndustry]:
         """Search in drug industry establishments table."""

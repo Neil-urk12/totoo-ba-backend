@@ -99,7 +99,11 @@ async def search_drug_products(
     search_criteria = {}
     registration_number = (extracted_fields.get("registration_number") or "").strip()
     brand_name = extracted_fields.get("brand_name", "").strip()
+    # For drug products, use product_description or generic_name
+    product_description = extracted_fields.get("product_description", "").strip()
     generic_name = extracted_fields.get("generic_name", "").strip()
+    # Prefer product_description if available, fallback to generic_name
+    generic_name = product_description or generic_name
     manufacturer = extracted_fields.get("manufacturer", "").strip()
 
     if registration_number:
@@ -189,10 +193,11 @@ async def search_food_products(
     search_criteria = {}
     registration_number = (extracted_fields.get("registration_number") or "").strip()
     brand_name = extracted_fields.get("brand_name", "").strip()
-    generic_name = extracted_fields.get("generic_name", "").strip()
-    product_name = (
-        extracted_fields.get("product_name", "").strip() or generic_name
-    )  # Fallback to generic_name
+    # For food products, prioritize product_description or product_name, NOT generic_name
+    product_description = extracted_fields.get("product_description", "").strip()
+    product_name = extracted_fields.get("product_name", "").strip()
+    # Use product_description if available, otherwise product_name
+    product_name = product_description or product_name
     company_name = extracted_fields.get("company_name", "").strip()
     manufacturer = extracted_fields.get("manufacturer", "").strip()
 
@@ -205,9 +210,16 @@ async def search_food_products(
 
     if product_name:
         search_criteria['product_name'] = product_name
+    
+    # Also include product_description for better matching
+    if product_description:
+        search_criteria['product_description'] = product_description
 
     if company_name:
         search_criteria['company_name'] = company_name
+    
+    if manufacturer:
+        search_criteria['manufacturer'] = manufacturer
 
     # Use the repository to perform search
     raw_results = await repository._search_food_products(repository.session, search_criteria)

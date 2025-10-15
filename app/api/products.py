@@ -52,14 +52,22 @@ class ExtractedFields(BaseModel):
     """Structured fields extracted from product image"""
     registration_number: Optional[str] = Field(
         None, 
-        description="FDA Philippines registration number (e.g., BR-XXXX, DR-XXXXX, FR-XXXXX)"
+        description="FDA Philippines registration number (e.g., BR-XXXX, DR-XXXXX, FR-XXXXX)",
+        alias="registration_number"
     )
-    brand_name: Optional[str] = Field(None, description="Brand name of the product")
-    generic_name: Optional[str] = Field(None, description="Generic or common name")
-    manufacturer: Optional[str] = Field(None, description="Manufacturer or distributor name")
-    expiry_date: Optional[str] = Field(None, description="Expiration or best before date")
-    batch_number: Optional[str] = Field(None, description="Batch or lot number")
-    net_weight: Optional[str] = Field(None, description="Net weight or volume")
+    brand_name: Optional[str] = Field(None, description="Brand name of the product", alias="brand_name")
+    product_description: Optional[str] = Field(
+        None, 
+        description="Product description, type, flavor, or generic name. For food: product type/flavor. For drugs: generic name",
+        alias="product_description"
+    )
+    manufacturer: Optional[str] = Field(None, description="Manufacturer or distributor name", alias="manufacturer")
+    expiry_date: Optional[str] = Field(None, description="Expiration or best before date", alias="expiry_date")
+    batch_number: Optional[str] = Field(None, description="Batch or lot number", alias="batch_number")
+    net_weight: Optional[str] = Field(None, description="Net weight or volume", alias="net_weight")
+    
+    class Config:
+        populate_by_name = True  # Allow population by both field name and alias
 
 
 class VerificationResult(BaseModel):
@@ -376,13 +384,26 @@ async def verify_product_image(
         # Step 1: Extract structured data directly from image using Gemini
         extracted_data = await extract_fields_from_image(image_bytes, image.content_type)
         
-        # Step 2: Query FDA database with extracted fields using service
-        search_results = await verification_service.search_and_rank_products(extracted_data['extracted_fields'])
+        # Step 2: Convert extracted fields to search dict and query FDA database
+        search_dict = convert_extracted_fields_to_search_dict(extracted_data['extracted_fields'])
+        print(f"\n=== DEBUG: Search Dictionary ===")
+        print(f"Search dict: {search_dict}")
+        
+        search_results = await verification_service.search_and_rank_products(search_dict)
+        print(f"\n=== DEBUG: Repository Results ===")
+        print(f"Total results returned: {len(search_results)}")
+        for i, result in enumerate(search_results[:5]):  # Show first 5
+            print(f"  [{i}] Type: {result.product_type}, Score: {result.relevance_score}, Fields: {result.matched_fields}")
+            if hasattr(result.model_instance, 'brand_name'):
+                print(f"      Brand: {result.model_instance.brand_name}")
+            if hasattr(result.model_instance, 'product_name'):
+                print(f"      Product: {result.model_instance.product_name}")
+        
         fuzzy_results = [result.to_dict() for result in search_results]
         
         # Step 3: AI-assisted intelligent matching
         ai_verification = await ai_assisted_verification(
-            extracted_fields=extracted_data['extracted_fields'],
+            extracted_fields=search_dict,
             raw_text=extracted_data.get('raw_text', ''),
             fuzzy_results=fuzzy_results
         )
@@ -421,6 +442,43 @@ async def verify_product_image(
         await image.close()
 
 
+def convert_extracted_fields_to_search_dict(extracted_fields: dict) -> dict:
+    """
+    Convert extracted fields dict to a search dictionary with proper field mapping.
+    Maps product_description to the appropriate field names for different product types.
+    
+    Args:
+        extracted_fields: Dictionary with extracted field data (from ExtractedFields.model_dump())
+    
+    Returns:
+        Search dictionary with proper field mappings for database queries
+    """
+    search_dict = {}
+    
+    # Direct field mappings - handle dict access
+    if extracted_fields.get('registration_number'):
+        search_dict['registration_number'] = extracted_fields['registration_number']
+    if extracted_fields.get('brand_name'):
+        search_dict['brand_name'] = extracted_fields['brand_name']
+    if extracted_fields.get('manufacturer'):
+        search_dict['manufacturer'] = extracted_fields['manufacturer']
+        search_dict['company_name'] = extracted_fields['manufacturer']  # Also map to company_name for food products
+    if extracted_fields.get('expiry_date'):
+        search_dict['expiry_date'] = extracted_fields['expiry_date']
+    if extracted_fields.get('batch_number'):
+        search_dict['batch_number'] = extracted_fields['batch_number']
+    if extracted_fields.get('net_weight'):
+        search_dict['net_weight'] = extracted_fields['net_weight']
+    
+    # Map product_description to both generic_name and product_name for compatibility
+    if extracted_fields.get('product_description'):
+        search_dict['product_description'] = extracted_fields['product_description']
+        search_dict['generic_name'] = extracted_fields['product_description']  # For drug products
+        search_dict['product_name'] = extracted_fields['product_description']   # For food products
+    
+    return search_dict
+
+
 async def extract_fields_from_image(image_bytes: bytes, mime_type: str) -> dict:
     """
     Extract structured fields directly from product image using Gemini 2.5 Flash.
@@ -434,7 +492,7 @@ Analyze this product image and extract ALL visible text and product information.
 Extract these specific fields:
 - registration_number: FDA Philippines registration number (patterns: BR-XXXX, DR-XXXXX, FR-XXXXX, etc.)
 - brand_name: Product brand name (extract ONLY the core brand, e.g., "C2" not "C2 COOL & CLEAN")
-- generic_name: Generic/common product name or product description (e.g., "APPLE GREEN TEA")
+- product_description: Product description, type, flavor, or generic name (e.g., "APPLE GREEN TEA", "CHOCOLATE MILK", "PAIN RELIEVER")
 - manufacturer: Manufacturer or distributor company name
 - expiry_date: Expiration date or "Best Before" date
 - batch_number: Batch, lot, or production number
@@ -445,8 +503,10 @@ IMPORTANT EXTRACTION RULES:
    - Example: "C2" not "C2 COOL & CLEAN"
    - Example: "Nestle" not "Nestle Pure Life"
    
-2. For generic_name: Extract the product type/flavor/description
-   - Example: "APPLE GREEN TEA", "CHOCOLATE MILK", "PAIN RELIEVER"
+2. For product_description: Extract the product type/flavor/description that describes what the product is
+   - For beverages: "APPLE GREEN TEA", "ORANGE JUICE", "COLA"
+   - For medicines: "PAIN RELIEVER", "COUGH SYRUP", "VITAMINS"
+   - For food: "CHOCOLATE MILK", "INSTANT NOODLES", "COOKIES"
    
 3. Extract exact text as it appears, but prioritize the SHORTEST meaningful brand name
 4. If a field is not visible or unclear, set it to null

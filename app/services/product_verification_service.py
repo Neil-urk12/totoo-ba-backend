@@ -200,15 +200,32 @@ class ProductVerificationService:
                 score += 0.4  # 40% weight for registration number
                 matched_fields.append('registration_number')
         
-        # Brand name match
+        # Brand name match with improved scoring
         if search_info.get('brand_name'):
             brand_fields = ['brand_name', 'product_name']
             for field in brand_fields:
                 if model_dict.get(field):
-                    if search_info['brand_name'].lower() in model_dict[field].lower():
-                        score += 0.3  # 30% weight for brand name
+                    search_brand = search_info['brand_name'].lower()
+                    field_brand = model_dict[field].lower()
+                    
+                    # Exact match (highest score)
+                    if search_brand == field_brand:
+                        score += 0.5  # 50% weight for exact brand match
                         matched_fields.append(field)
-                    break
+                        break
+                    # Core brand substring match (e.g., "C2" in "C2 COOL & CLEAN")
+                    elif search_brand in field_brand or field_brand in search_brand:
+                        score += 0.4  # 40% weight for brand substring match
+                        matched_fields.append(field)
+                        break
+                    # Word-level brand match
+                    else:
+                        search_words = set(search_brand.split())
+                        field_words = set(field_brand.split())
+                        if search_words & field_words:
+                            score += 0.3  # 30% weight for word-level brand match
+                            matched_fields.append(field)
+                            break
         
         # Company/establishment name match
         if search_info.get('company_name'):
@@ -220,15 +237,33 @@ class ProductVerificationService:
                         matched_fields.append(field)
                     break
         
-        # Product name match
-        if search_info.get('product_name'):
+        # Product description/name match - handle both product_description and legacy fields
+        # Use word-level matching to handle word order variations
+        product_description = search_info.get('product_description') or search_info.get('generic_name') or search_info.get('product_name')
+        if product_description:
             product_fields = ['product_name', 'generic_name']
             for field in product_fields:
                 if model_dict.get(field):
-                    if search_info['product_name'].lower() in model_dict[field].lower():
-                        score += 0.1  # 10% weight for product name
+                    # Exact phrase match (highest score)
+                    if product_description.lower() in model_dict[field].lower():
+                        score += 0.25  # 25% weight for exact product description match
                         matched_fields.append(field)
-                    break
+                        break
+                    # Word-level tokenized match (handles word order variations)
+                    else:
+                        search_words = set(word.lower() for word in product_description.strip().split() if len(word) >= 3)
+                        field_words = set(word.lower() for word in str(model_dict[field]).strip().split() if len(word) >= 3)
+                        
+                        if search_words and field_words:
+                            # Calculate word overlap ratio
+                            common_words = search_words & field_words
+                            overlap_ratio = len(common_words) / len(search_words)
+                            
+                            # Award partial score based on word overlap
+                            if overlap_ratio >= 0.5:  # At least 50% of words match
+                                score += 0.2 * overlap_ratio  # Up to 20% weight for partial match
+                                matched_fields.append(field)
+                                break
         
         return score, matched_fields
     
