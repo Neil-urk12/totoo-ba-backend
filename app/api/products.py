@@ -15,12 +15,6 @@ router = APIRouter(prefix="/products")
 
 
 # Define request and response models
-class ProductVerificationRequest(BaseModel):
-    """Request model for product verification"""
-    product_id: str
-    verification_code: Optional[str] = None
-
-
 class ProductVerificationResponse(BaseModel):
     """Response model for product verification"""
     product_id: str
@@ -99,19 +93,19 @@ class ImageVerificationResponse(BaseModel):
     alternative_matches: list = []
 
 
-# Product verification endpoint (basic)
-@router.post(
-    "/verify",
+# Product verification endpoint (final)
+@router.get(
+    "/verify/{product_id}",
     response_model=ProductVerificationResponse,
     summary="Verify Product by ID",
-    description="Verifies if a product is legitimate using its ID and optional verification code"
+    description="Verifies if a product is legitimate using its ID"
 )
 async def verify_product(
-    request: ProductVerificationRequest,
+    product_id: str,
     verification_service: ProductVerificationService = Depends(get_product_verification_service)
 ):
     """
-    Verify a product using its ID and optional verification code.
+    Verify a product using its ID.
     This endpoint checks if a product is legitimate and verified in our system.
     
     The product_id can be:
@@ -121,8 +115,7 @@ async def verify_product(
     """
     from app.services.fda_verification import normalize_string
     
-    product_id = request.product_id.strip()
-    verification_code = request.verification_code
+    product_id = product_id.strip()
 
     # Basic validation
     if not product_id or len(product_id) < 3:
@@ -144,7 +137,6 @@ async def verify_product(
         message = f"Product ID '{product_id}' not found in FDA database"
         details = {
             "verification_method": "repository_database_lookup",
-            "verification_code_provided": verification_code is not None,
             "search_results_count": len(all_matches)
         }
         
@@ -231,13 +223,6 @@ async def verify_product(
                 ]
             })
         
-        # Additional verification with verification code if provided
-        if verification_code and is_verified:
-            # You can implement additional verification logic here
-            # For now, we'll just note that a verification code was provided
-            details["verification_code_validated"] = True
-            message += f" (Verification code: {verification_code})"
-        
         return ProductVerificationResponse(
             product_id=product_id,
             is_verified=is_verified,
@@ -257,73 +242,6 @@ async def verify_product(
                 "error_code": "DATABASE_ERROR",
                 "error_message": "Internal server error occurred during verification",
                 "verification_method": "repository_database_lookup"
-            }
-        )
-
-
-# Get verification info by ID
-@router.get(
-    "/verify/{product_id}",
-    response_model=ProductVerificationResponse,
-    summary="Get Product Verification Info",
-    description="Retrieves verification status for a specific product ID"
-)
-async def get_product_verification(
-    product_id: str,
-    verification_service: ProductVerificationService = Depends(get_product_verification_service)
-):
-    """
-    Get verification status for a specific product by its ID.
-    This is an alternative way to check product verification status.
-    """
-    if not product_id or len(product_id) < 3:
-        return ProductVerificationResponse(
-            product_id=product_id,
-            is_verified=False,
-            message=f"Invalid product ID: {product_id}. Product ID must be at least 3 characters long.",
-            details={"error_code": "INVALID_ID"}
-        )
-
-    try:
-        # Use service layer for business logic
-        search_results = await verification_service.verify_product_by_id(product_id)
-        
-        # Convert to legacy format for API compatibility
-        all_matches = [result.to_dict() for result in search_results]
-        
-        if all_matches:
-            # First match is already a dict from service layer
-            best_match = all_matches[0]
-            return ProductVerificationResponse(
-                product_id=product_id,
-                is_verified=True,
-                message=f"Product {product_id} found in FDA database",
-                details={
-                    "verification_method": "repository_id_lookup",
-                    "product_info": best_match,
-                    "total_matches": len(all_matches)
-                }
-            )
-        else:
-            return ProductVerificationResponse(
-                product_id=product_id,
-                is_verified=False,
-                message=f"Product {product_id} not found in FDA database",
-                details={
-                    "verification_method": "repository_id_lookup",
-                    "total_matches": 0
-                }
-            )
-    
-    except Exception as e:
-        print(f"Repository query failed: {str(e)}")
-        return ProductVerificationResponse(
-            product_id=product_id,
-            is_verified=False,
-            message="Error during verification lookup",
-            details={
-                "error_code": "DATABASE_ERROR",
-                "verification_method": "repository_id_lookup"
             }
         )
 

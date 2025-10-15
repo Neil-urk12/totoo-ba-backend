@@ -120,8 +120,7 @@ To access the API documentation, visit `http://localhost:8000/docs`.
 
 - `GET /` - Root endpoint with application info
 - `GET /health` - Health check endpoint
-- `POST /api/v1/products/verify` - Verify product by ID
-- `GET /api/v1/products/verify/{product_id}` - Get product verification info by ID
+- `GET /api/v1/products/verify/{product_id}` - Verify product by ID
 - `POST /api/v1/products/verify-image` - Verify product from image upload
 
 ## Development
