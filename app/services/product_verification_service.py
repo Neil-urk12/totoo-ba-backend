@@ -146,18 +146,16 @@ class ProductVerificationService:
         """
         Verify a product by its ID with business logic applied.
         
+        Optimized to use search_by_any_id which reduces queries from 21 to 7.
+        
         Args:
-            product_id: Product ID to verify
+            product_id: Product ID to verify (registration/license/tracking number)
             
         Returns:
             List of matching products with verification scores
         """
-        # Get raw data from repository
-        registration_matches = await self.products_repo.search_by_registration_number(product_id)
-        license_matches = await self.products_repo.search_by_license_number(product_id)
-        tracking_matches = await self.products_repo.search_by_document_tracking_number(product_id)
-        
-        all_matches = registration_matches + license_matches + tracking_matches
+        # Get raw data from repository using optimized single method (7 queries instead of 21)
+        all_matches = await self.products_repo.search_by_any_id(product_id)
         
         # Apply business logic for exact vs partial matches
         results = []

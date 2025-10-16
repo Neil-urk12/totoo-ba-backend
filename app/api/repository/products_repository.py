@@ -335,6 +335,53 @@ class ProductsRepository(MultiTableRepository):
         
         return result.scalars().all()
     
+    async def search_by_any_id(self, id_value: str) -> List[FDAModel]:
+        """
+        Optimized search that queries only relevant tables for any ID type.
+        Reduces queries from 21 to 7 by smartly targeting tables based on ID fields.
+        
+        This method searches:
+        - Products tables (drug, food) for registration_number
+        - Establishment tables (drug, food, medical, cosmetic) for license_number
+        - Applications table for document_tracking_number
+        
+        Args:
+            id_value: The ID to search for (registration/license/tracking number)
+            
+        Returns:
+            List of all matching records across relevant tables
+        """
+        matches = []
+        
+        # Search products for registration_number (2 queries)
+        matches.extend(await self._search_drug_products(
+            self.session, {'registration_number': id_value}
+        ))
+        matches.extend(await self._search_food_products(
+            self.session, {'registration_number': id_value}
+        ))
+        
+        # Search establishments for license_number (4 queries)
+        matches.extend(await self._search_drug_industry(
+            self.session, {'license_number': id_value}
+        ))
+        matches.extend(await self._search_food_industry(
+            self.session, {'license_number': id_value}
+        ))
+        matches.extend(await self._search_medical_device_industry(
+            self.session, {'license_number': id_value}
+        ))
+        matches.extend(await self._search_cosmetic_industry(
+            self.session, {'license_number': id_value}
+        ))
+        
+        # Search applications for document_tracking_number (1 query)
+        matches.extend(await self._search_drug_applications(
+            self.session, {'document_tracking_number': id_value}
+        ))
+        
+        return matches
+    
     async def search_by_registration_number(self, registration_number: str) -> List[FDAModel]:
         """
         Search specifically by registration number across relevant tables.
