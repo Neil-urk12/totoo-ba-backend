@@ -113,7 +113,7 @@ async def verify_product(
     - License number for establishments
     - Document tracking number for applications
     """
-    from app.services.fda_verification import normalize_string
+    from app.utils.helpers import normalize_string
     
     product_id = product_id.strip()
 
