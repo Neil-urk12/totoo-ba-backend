@@ -4,7 +4,7 @@ Handles searches across multiple FDA database tables.
 """
 
 from typing import Dict, List, Any, Optional, Union
-from sqlalchemy import select, or_, and_, text
+from sqlalchemy import select, or_, and_, text, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .database_repository import MultiTableRepository
@@ -57,8 +57,10 @@ class ProductsRepository(MultiTableRepository):
         """
         results = {}
 
-        # Search food products
-        results['food_products'] = await self._search_food_products(self.session, search_criteria)
+        # Search food products using full-text search (FTS)
+        # NOTE: This uses the search_vector tsvector column with GIN index
+        # To use the old ILIKE-based search, change to: _search_food_products
+        results['food_products'] = await self._search_food_products_fts(self.session, search_criteria)
         
         # Search drug products
         results['drug_products'] = await self._search_drug_products(self.session, search_criteria)
@@ -146,6 +148,85 @@ class ProductsRepository(MultiTableRepository):
         
         result = await session.execute(query)
         return result.scalars().all()
+    
+    async def _search_food_products_fts(self, session: AsyncSession, criteria: Dict[str, Any]) -> List[FoodProducts]:
+        """Search in food products table using full-text search with tsvector.
+        
+        This method uses PostgreSQL's full-text search capabilities with the
+        pre-generated search_vector column and GIN index for optimal performance.
+        
+        Args:
+            session: AsyncSession for database operations
+            criteria: Search criteria dictionary
+            
+        Returns:
+            List of matching FoodProducts ordered by relevance
+        """
+        print(f"\n=== DEBUG: _search_food_products_fts called ===")
+        print(f"Criteria: {criteria}")
+        
+        # Build search terms from criteria
+        search_terms = []
+        
+        # Collect all searchable terms
+        if criteria.get('registration_number'):
+            search_terms.append(criteria['registration_number'])
+        
+        if criteria.get('brand_name'):
+            search_terms.append(criteria['brand_name'])
+        
+        if criteria.get('product_name'):
+            search_terms.append(criteria['product_name'])
+        
+        if criteria.get('product_description'):
+            # Split product description into words for better matching
+            words = criteria['product_description'].strip().split()
+            search_terms.extend([word for word in words if len(word) >= 3])
+        
+        if criteria.get('company_name'):
+            search_terms.append(criteria['company_name'])
+        
+        if criteria.get('manufacturer'):
+            search_terms.append(criteria['manufacturer'])
+        
+        if not search_terms:
+            print("  No search terms provided, returning empty list")
+            return []
+        
+        # Create search query using plainto_tsquery (handles plain text better)
+        # Join terms with spaces - PostgreSQL will handle them intelligently
+        search_string = ' '.join(search_terms)
+        print(f"  Full-text search string: {search_string}")
+        
+        # Use the pre-generated search_vector column with GIN index
+        # This is MUCH faster than generating tsvector on-the-fly
+        # The @@ operator checks if tsvector matches tsquery
+        
+        query = (
+            select(FoodProducts)
+            .where(
+                # Use the indexed search_vector column directly
+                FoodProducts.search_vector.op('@@')(func.plainto_tsquery('english', search_string))
+            )
+            # Order by relevance using ts_rank with the indexed column
+            .order_by(
+                func.ts_rank(
+                    FoodProducts.search_vector, 
+                    func.plainto_tsquery('english', search_string)
+                ).desc()
+            )
+            .limit(50)
+        )
+        
+        result = await session.execute(query)
+        results = result.scalars().all()
+        
+        print(f"  Food products found (FTS): {len(results)}")
+        if results:
+            for i, prod in enumerate(results[:5]):
+                print(f"    [{i}] Brand: {prod.brand_name}, Product: {prod.product_name}")
+        
+        return results
     
     async def _search_food_products(self, session: AsyncSession, criteria: Dict[str, Any]) -> List[FoodProducts]:
         """Search in food products table with word-level tokenized matching."""

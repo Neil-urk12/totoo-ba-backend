@@ -3,7 +3,7 @@ Product verification service layer.
 Handles business logic for product verification, scoring, and ranking.
 """
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from dataclasses import dataclass
 from app.api.repository.products_repository import ProductsRepository, FDAModel
 from app.models import (
@@ -352,7 +352,7 @@ class ProductVerificationService:
                 'application_type': model_instance.application_type,
             }
         
-        return {}
+        # return {}
     
     def _get_product_type(self, model_instance: FDAModel) -> str:
         """
@@ -379,4 +379,4 @@ class ProductVerificationService:
         elif isinstance(model_instance, DrugsNewApplications):
             return 'drug_application'
         
-        return 'unknown'
+        # return 'unknown'
