@@ -56,3 +56,12 @@ Describe how you tested your changes. Include test configuration and steps.
 1. yarn install
 2. yarn dev
 3. Tested login flow with test user
+
+---
+
+### 📋 Relevant Images
+
+Provide a screenshot of new/updated features (if applicable).
+If resolving an issue, add picture of successful tests.
+
+
