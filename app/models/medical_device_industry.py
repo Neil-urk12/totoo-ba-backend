@@ -7,12 +7,15 @@ from datetime import date
 class MedicalDeviceIndustry(Base):
     """
     SQLAlchemy model for the Medical Device Industry table in Supabase database.
-    
+
     Represents medical device industry establishments with their licensing information.
     """
+
     __tablename__ = "Medical Device Industry"
 
-    license_number: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
+    license_number: Mapped[str] = mapped_column(
+        String, primary_key=True, nullable=False
+    )
     name_of_establishment: Mapped[str] = mapped_column(String, nullable=False)
     owner: Mapped[str] = mapped_column(String, nullable=False)
     address: Mapped[str] = mapped_column(String, nullable=False)
