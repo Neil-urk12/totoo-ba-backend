@@ -1,7 +1,8 @@
-name: "✨ Feature Request"
+name: "Feature Request"
 description: Suggest a new idea or enhancement for this project
 title: "[FEATURE] A brief, clear title for your suggestion"
 labels: ["enhancement", "triage"]
+assignees: [Neil-urk12]
 body:
   - type: markdown
     attributes:
@@ -12,15 +13,7 @@ body:
     id: feature-description
     attributes:
       label: "🚀 Feature Description"
-      description: A clear and concise description of what the feature is and what problem it solves.
-    validations:
-      required: true
-
-  - type: textarea
-    id: proposed-solution
-    attributes:
-      label: "💡 Proposed Solution"
-      description: Detail the solution you've thought of. If you have specific ideas for implementation or design, include them here.
+      description: A clear and concise description of what the feature is.
     validations:
       required: true
 
@@ -53,19 +46,6 @@ body:
         - Large (major overhaul, new infrastructure needed)
     validations:
       required: true
-
-  - type: checkboxes
-    id: alternatives
-    attributes:
-      label: "❓ Alternatives Considered"
-      description: Check any alternatives or workarounds you've thought of.
-      options:
-        - label: "I have searched the existing issues and confirmed that this feature has not been requested before."
-          required: true
-        - label: "I have considered a temporary workaround but believe this feature is necessary for a long-term solution."
-          required: true
-        - label: "This feature is not dependent on any other major changes or external systems."
-          required: false
 
   - type: checkboxes
     id: terms
