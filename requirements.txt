@@ -20,3 +20,4 @@ google-genai
 pytesseract
 Pillow
 fuzzywuzzy
+ruff
