@@ -1,10 +1,11 @@
 # app/core/database.py
 import os
-from sqlalchemy import create_engine, text
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.pool import NullPool
+
 from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.pool import NullPool
 
 load_dotenv()
 
@@ -108,6 +109,7 @@ async def test_connection_async():
 
         # Test ORM query
         from sqlalchemy import select
+
         from app.models.food_products import FoodProducts
 
         async with async_session() as session:

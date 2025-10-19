@@ -1,16 +1,16 @@
-from pydantic import BaseModel
 from datetime import date
-from typing import Optional
+
+from pydantic import BaseModel
 
 
 class FoodProductsBase(BaseModel):
     registration_number: str
-    company_name: Optional[str] = None
-    product_name: Optional[str] = None
-    brand_name: Optional[str] = None
-    type_of_product: Optional[str] = None
-    issuance_date: Optional[date] = None
-    expiry_date: Optional[date] = None
+    company_name: str | None = None
+    product_name: str | None = None
+    brand_name: str | None = None
+    type_of_product: str | None = None
+    issuance_date: date | None = None
+    expiry_date: date | None = None
 
 
 class FoodProductsCreate(FoodProductsBase):
@@ -18,12 +18,12 @@ class FoodProductsCreate(FoodProductsBase):
 
 
 class FoodProductsUpdate(BaseModel):
-    company_name: Optional[str] = None
-    product_name: Optional[str] = None
-    brand_name: Optional[str] = None
-    type_of_product: Optional[str] = None
-    issuance_date: Optional[date] = None
-    expiry_date: Optional[date] = None
+    company_name: str | None = None
+    product_name: str | None = None
+    brand_name: str | None = None
+    type_of_product: str | None = None
+    issuance_date: date | None = None
+    expiry_date: date | None = None
 
 
 class FoodProductsResponse(FoodProductsBase):

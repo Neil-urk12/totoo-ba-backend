@@ -1,15 +1,16 @@
 # extractor_to_db.py
-import os
 import asyncio
+import os
+from typing import Any
+
 import pandas as pd
 from bs4 import BeautifulSoup
-from typing import List, Dict, Any
+from dotenv import load_dotenv
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
-from dotenv import load_dotenv
 
 # Import your database configuration
-from app.core.database import async_session, engine, Base
+from app.core.database import Base, async_session, engine
 
 # Import the DrugProducts model
 from app.models.drug_products import DrugProducts
@@ -36,7 +37,7 @@ def extract_data_from_html(file_path: str) -> pd.DataFrame:
         raise FileNotFoundError(f"File does not exist: {file_path}")
 
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             content = f.read()
 
         soup = BeautifulSoup(content, "html.parser")
@@ -375,7 +376,7 @@ async def create_tables():
     print("✅ Tables created successfully")
 
 
-async def bulk_upsert_data(data: List[Dict[str, Any]], batch_size: int = 1000):
+async def bulk_upsert_data(data: list[dict[str, Any]], batch_size: int = 1000):
     """
     Insert data into database with conflict resolution (upsert).
     Uses PostgreSQL's ON CONFLICT clause for efficient upserts.
@@ -438,7 +439,7 @@ async def bulk_upsert_data(data: List[Dict[str, Any]], batch_size: int = 1000):
             raise
 
 
-async def bulk_insert_simple(data: List[Dict[str, Any]], batch_size: int = 1000):
+async def bulk_insert_simple(data: list[dict[str, Any]], batch_size: int = 1000):
     """
     Simple bulk insert without conflict resolution (faster but fails on duplicates).
     Use this if your data has no duplicates.

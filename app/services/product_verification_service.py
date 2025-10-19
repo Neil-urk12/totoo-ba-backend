@@ -3,17 +3,18 @@ Product verification service layer.
 Handles business logic for product verification, scoring, and ranking.
 """
 
-from typing import Dict, List, Any
 from dataclasses import dataclass
-from app.api.repository.products_repository import ProductsRepository, FDAModel
+from typing import Any
+
+from app.api.repository.products_repository import FDAModel, ProductsRepository
 from app.models import (
-    DrugProducts,
-    FoodProducts,
-    DrugIndustry,
-    FoodIndustry,
-    MedicalDeviceIndustry,
     CosmeticIndustry,
+    DrugIndustry,
+    DrugProducts,
     DrugsNewApplications,
+    FoodIndustry,
+    FoodProducts,
+    MedicalDeviceIndustry,
 )
 
 
@@ -25,10 +26,10 @@ class ProductSearchResult:
 
     model_instance: FDAModel
     relevance_score: float
-    matched_fields: List[str]
+    matched_fields: list[str]
     product_type: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API responses."""
         # Get the primary key value - models use registration_number, license_number, etc.
         primary_key = self._get_primary_key_value()
@@ -58,28 +59,7 @@ class ProductSearchResult:
                     "company_name": self.model_instance.company_name,
                 }
             )
-        elif isinstance(self.model_instance, DrugIndustry):
-            result.update(
-                {
-                    "license_number": self.model_instance.license_number,
-                    "name_of_establishment": self.model_instance.name_of_establishment,
-                }
-            )
-        elif isinstance(self.model_instance, FoodIndustry):
-            result.update(
-                {
-                    "license_number": self.model_instance.license_number,
-                    "name_of_establishment": self.model_instance.name_of_establishment,
-                }
-            )
-        elif isinstance(self.model_instance, MedicalDeviceIndustry):
-            result.update(
-                {
-                    "license_number": self.model_instance.license_number,
-                    "name_of_establishment": self.model_instance.name_of_establishment,
-                }
-            )
-        elif isinstance(self.model_instance, CosmeticIndustry):
+        elif isinstance(self.model_instance, DrugIndustry) or isinstance(self.model_instance, FoodIndustry) or isinstance(self.model_instance, MedicalDeviceIndustry) or isinstance(self.model_instance, CosmeticIndustry):
             result.update(
                 {
                     "license_number": self.model_instance.license_number,
@@ -102,25 +82,24 @@ class ProductSearchResult:
         """Get the primary key value from the model instance."""
         if isinstance(self.model_instance, (DrugProducts, FoodProducts)):
             return self.model_instance.registration_number
-        elif isinstance(
+        if isinstance(
             self.model_instance,
             (DrugIndustry, FoodIndustry, MedicalDeviceIndustry, CosmeticIndustry),
         ):
             return self.model_instance.license_number
-        elif isinstance(self.model_instance, DrugsNewApplications):
+        if isinstance(self.model_instance, DrugsNewApplications):
             return self.model_instance.document_tracking_number
-        else:
-            # Fallback - try to get any available identifier
-            for attr in [
-                "registration_number",
-                "license_number",
-                "document_tracking_number",
-            ]:
-                if hasattr(self.model_instance, attr):
-                    value = getattr(self.model_instance, attr)
-                    if value:
-                        return value
-            return "unknown"
+        # Fallback - try to get any available identifier
+        for attr in [
+            "registration_number",
+            "license_number",
+            "document_tracking_number",
+        ]:
+            if hasattr(self.model_instance, attr):
+                value = getattr(self.model_instance, attr)
+                if value:
+                    return value
+        return "unknown"
 
 
 class ProductVerificationService:
@@ -139,8 +118,8 @@ class ProductVerificationService:
         self.products_repo = products_repo
 
     async def search_and_rank_products(
-        self, product_info: Dict[str, Any]
-    ) -> List[ProductSearchResult]:
+        self, product_info: dict[str, Any]
+    ) -> list[ProductSearchResult]:
         """
         Search for products and apply business logic for ranking.
 
@@ -177,7 +156,7 @@ class ProductVerificationService:
 
         return scored_results
 
-    async def verify_product_by_id(self, product_id: str) -> List[ProductSearchResult]:
+    async def verify_product_by_id(self, product_id: str) -> list[ProductSearchResult]:
         """
         Verify a product by its ID with business logic applied.
 
@@ -215,8 +194,8 @@ class ProductVerificationService:
         return results
 
     def _calculate_relevance_score(
-        self, model_instance: FDAModel, search_info: Dict[str, Any]
-    ) -> tuple[float, List[str]]:
+        self, model_instance: FDAModel, search_info: dict[str, Any]
+    ) -> tuple[float, list[str]]:
         """
         Calculate relevance score for a search result with business logic.
 
@@ -258,18 +237,17 @@ class ProductVerificationService:
                         matched_fields.append(field)
                         break
                     # Core brand substring match (e.g., "C2" in "C2 COOL & CLEAN")
-                    elif search_brand in field_brand or field_brand in search_brand:
+                    if search_brand in field_brand or field_brand in search_brand:
                         score += 0.4  # 40% weight for brand substring match
                         matched_fields.append(field)
                         break
                     # Word-level brand match
-                    else:
-                        search_words = set(search_brand.split())
-                        field_words = set(field_brand.split())
-                        if search_words & field_words:
-                            score += 0.3  # 30% weight for word-level brand match
-                            matched_fields.append(field)
-                            break
+                    search_words = set(search_brand.split())
+                    field_words = set(field_brand.split())
+                    if search_words & field_words:
+                        score += 0.3  # 30% weight for word-level brand match
+                        matched_fields.append(field)
+                        break
 
         # Company/establishment name match
         if search_info.get("company_name"):
@@ -298,36 +276,35 @@ class ProductVerificationService:
                         matched_fields.append(field)
                         break
                     # Word-level tokenized match (handles word order variations)
-                    else:
-                        search_words = set(
-                            word.lower()
-                            for word in product_description.strip().split()
-                            if len(word) >= 3
-                        )
-                        field_words = set(
-                            word.lower()
-                            for word in str(model_dict[field]).strip().split()
-                            if len(word) >= 3
-                        )
+                    search_words = set(
+                        word.lower()
+                        for word in product_description.strip().split()
+                        if len(word) >= 3
+                    )
+                    field_words = set(
+                        word.lower()
+                        for word in str(model_dict[field]).strip().split()
+                        if len(word) >= 3
+                    )
 
-                        if search_words and field_words:
-                            # Calculate word overlap ratio
-                            common_words = search_words & field_words
-                            overlap_ratio = len(common_words) / len(search_words)
+                    if search_words and field_words:
+                        # Calculate word overlap ratio
+                        common_words = search_words & field_words
+                        overlap_ratio = len(common_words) / len(search_words)
 
-                            # Award partial score based on word overlap
-                            if overlap_ratio >= 0.5:  # At least 50% of words match
-                                score += (
-                                    0.2 * overlap_ratio
-                                )  # Up to 20% weight for partial match
-                                matched_fields.append(field)
-                                break
+                        # Award partial score based on word overlap
+                        if overlap_ratio >= 0.5:  # At least 50% of words match
+                            score += (
+                                0.2 * overlap_ratio
+                            )  # Up to 20% weight for partial match
+                            matched_fields.append(field)
+                            break
 
         return score, matched_fields
 
     def _calculate_id_match_score(
         self, model_instance: FDAModel, product_id: str
-    ) -> tuple[float, List[str]]:
+    ) -> tuple[float, list[str]]:
         """
         Calculate match score for ID-based searches.
 
@@ -347,12 +324,12 @@ class ProductVerificationService:
             and model_dict["registration_number"].lower() == product_id.lower()
         ):
             return 1.0, ["registration_number"]
-        elif (
+        if (
             model_dict.get("license_number")
             and model_dict["license_number"].lower() == product_id.lower()
         ):
             return 1.0, ["license_number"]
-        elif (
+        if (
             model_dict.get("document_tracking_number")
             and model_dict["document_tracking_number"].lower() == product_id.lower()
         ):
@@ -381,7 +358,7 @@ class ProductVerificationService:
 
         return score, matched_fields
 
-    def _model_to_search_dict(self, model_instance: FDAModel) -> Dict[str, Any]:
+    def _model_to_search_dict(self, model_instance: FDAModel) -> dict[str, Any]:
         """
         Convert model instance to dictionary for search operations.
 
@@ -398,33 +375,18 @@ class ProductVerificationService:
                 "generic_name": model_instance.generic_name,
                 "manufacturer": model_instance.manufacturer,
             }
-        elif isinstance(model_instance, FoodProducts):
+        if isinstance(model_instance, FoodProducts):
             return {
                 "registration_number": model_instance.registration_number,
                 "product_name": model_instance.product_name,
                 "company_name": model_instance.company_name,
             }
-        elif isinstance(model_instance, DrugIndustry):
+        if isinstance(model_instance, DrugIndustry) or isinstance(model_instance, FoodIndustry) or isinstance(model_instance, MedicalDeviceIndustry) or isinstance(model_instance, CosmeticIndustry):
             return {
                 "license_number": model_instance.license_number,
                 "name_of_establishment": model_instance.name_of_establishment,
             }
-        elif isinstance(model_instance, FoodIndustry):
-            return {
-                "license_number": model_instance.license_number,
-                "name_of_establishment": model_instance.name_of_establishment,
-            }
-        elif isinstance(model_instance, MedicalDeviceIndustry):
-            return {
-                "license_number": model_instance.license_number,
-                "name_of_establishment": model_instance.name_of_establishment,
-            }
-        elif isinstance(model_instance, CosmeticIndustry):
-            return {
-                "license_number": model_instance.license_number,
-                "name_of_establishment": model_instance.name_of_establishment,
-            }
-        elif isinstance(model_instance, DrugsNewApplications):
+        if isinstance(model_instance, DrugsNewApplications):
             return {
                 "document_tracking_number": model_instance.document_tracking_number,
                 "brand_name": model_instance.brand_name,
@@ -446,17 +408,17 @@ class ProductVerificationService:
         """
         if isinstance(model_instance, DrugProducts):
             return "drug_product"
-        elif isinstance(model_instance, FoodProducts):
+        if isinstance(model_instance, FoodProducts):
             return "food_product"
-        elif isinstance(model_instance, DrugIndustry):
+        if isinstance(model_instance, DrugIndustry):
             return "drug_industry"
-        elif isinstance(model_instance, FoodIndustry):
+        if isinstance(model_instance, FoodIndustry):
             return "food_industry"
-        elif isinstance(model_instance, MedicalDeviceIndustry):
+        if isinstance(model_instance, MedicalDeviceIndustry):
             return "medical_device_industry"
-        elif isinstance(model_instance, CosmeticIndustry):
+        if isinstance(model_instance, CosmeticIndustry):
             return "cosmetic_industry"
-        elif isinstance(model_instance, DrugsNewApplications):
+        if isinstance(model_instance, DrugsNewApplications):
             return "drug_application"
 
         # return 'unknown'

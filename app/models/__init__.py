@@ -1,12 +1,11 @@
+from . import drug_industry
+from .cosmetic_industry import CosmeticIndustry
 from .drug_industry import DrugIndustry
 from .drug_products import DrugProducts
+from .drugs_new_applications import DrugsNewApplications
 from .food_industry import FoodIndustry
 from .food_products import FoodProducts
 from .medical_device_industry import MedicalDeviceIndustry
-from .cosmetic_industry import CosmeticIndustry
-from .drugs_new_applications import DrugsNewApplications
-
-from . import drug_industry
 
 __all__ = [
     "DrugIndustry",

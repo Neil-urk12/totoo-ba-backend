@@ -1,9 +1,9 @@
 # app/core/config.py
-from functools import lru_cache
-from typing import List, Optional
-from pydantic import Field, field_validator, computed_field
-from pydantic_settings import BaseSettings, SettingsConfigDict
 import secrets
+from functools import lru_cache
+
+from pydantic import Field, computed_field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -76,13 +76,13 @@ class Settings(BaseSettings):
     # ============================================================================
     # CORS CONFIGURATION
     # ============================================================================
-    cors_origins: List[str] = Field(
+    cors_origins: list[str] = Field(
         default=["http://localhost:5173", "http://localhost:8000"],
         description="Allowed CORS origins",
     )
     cors_allow_credentials: bool = True
-    cors_allow_methods: List[str] = ["*"]
-    cors_allow_headers: List[str] = ["*"]
+    cors_allow_methods: list[str] = ["*"]
+    cors_allow_headers: list[str] = ["*"]
 
     # ============================================================================
     # FDA SCRAPER CONFIGURATION
@@ -109,7 +109,7 @@ class Settings(BaseSettings):
     # ============================================================================
     business_databank_url: str = "https://databank.business.gov.ph"
     sec_api_url: str = "https://portal.sec.gov.ph"
-    sec_api_key: Optional[str] = Field(
+    sec_api_key: str | None = Field(
         default=None, description="SEC API key for business verification"
     )
 
@@ -154,7 +154,7 @@ class Settings(BaseSettings):
         default="INFO",
         description="Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL",
     )
-    log_file: Optional[str] = Field(
+    log_file: str | None = Field(
         default=None, description="Log file path. None = stdout only"
     )
 
@@ -213,7 +213,7 @@ class Settings(BaseSettings):
 
     @computed_field
     @property
-    def cors_origins_list(self) -> List[str]:
+    def cors_origins_list(self) -> list[str]:
         """Parse CORS origins from environment variable or list"""
         if isinstance(self.cors_origins, str):
             return [origin.strip() for origin in self.cors_origins.split(",")]
@@ -261,7 +261,7 @@ class Settings(BaseSettings):
 # ============================================================================
 # DEPENDENCY INJECTION PATTERN
 # ============================================================================
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """
     Cached settings instance for dependency injection.

@@ -4,10 +4,11 @@ Provides common database operations and patterns for all repositories.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Type, TypeVar, Generic
+from typing import Any, Generic, TypeVar
+
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import select, and_, or_, text
 
 # Type variable for model classes
 ModelType = TypeVar("ModelType", bound=declarative_base())
@@ -19,7 +20,7 @@ class BaseRepository(Generic[ModelType], ABC):
     All specific repositories should inherit from this class.
     """
 
-    def __init__(self, model: Type[ModelType], session: AsyncSession):
+    def __init__(self, model: type[ModelType], session: AsyncSession):
         """
         Initialize repository with the model class and session.
 
@@ -30,7 +31,7 @@ class BaseRepository(Generic[ModelType], ABC):
         self.model = model
         self.session = session
 
-    async def get_by_id(self, id_value: Any) -> Optional[ModelType]:
+    async def get_by_id(self, id_value: Any) -> ModelType | None:
         """
         Get a single record by ID.
 
@@ -45,8 +46,8 @@ class BaseRepository(Generic[ModelType], ABC):
         return result.scalar_one_or_none()
 
     async def get_all(
-        self, limit: Optional[int] = None, offset: Optional[int] = None
-    ) -> List[ModelType]:
+        self, limit: int | None = None, offset: int | None = None
+    ) -> list[ModelType]:
         """
         Get all records with optional pagination.
 
@@ -82,7 +83,7 @@ class BaseRepository(Generic[ModelType], ABC):
         await self.session.refresh(instance)
         return instance
 
-    async def update(self, id_value: Any, **kwargs) -> Optional[ModelType]:
+    async def update(self, id_value: Any, **kwargs) -> ModelType | None:
         """
         Update a record by ID.
 
@@ -130,10 +131,10 @@ class BaseRepository(Generic[ModelType], ABC):
 
     async def search_by_fields(
         self,
-        search_fields: Dict[str, Any],
+        search_fields: dict[str, Any],
         fuzzy: bool = False,
-        limit: Optional[int] = None,
-    ) -> List[ModelType]:
+        limit: int | None = None,
+    ) -> list[ModelType]:
         """
         Search records by multiple fields.
 
@@ -170,10 +171,10 @@ class BaseRepository(Generic[ModelType], ABC):
 
     async def search_by_any_field(
         self,
-        search_fields: Dict[str, Any],
+        search_fields: dict[str, Any],
         fuzzy: bool = False,
-        limit: Optional[int] = None,
-    ) -> List[ModelType]:
+        limit: int | None = None,
+    ) -> list[ModelType]:
         """
         Search records where ANY of the specified fields match (OR condition).
 
@@ -209,8 +210,8 @@ class BaseRepository(Generic[ModelType], ABC):
         return result.scalars().all()
 
     async def execute_raw_query(
-        self, query: str, params: Optional[Dict[str, Any]] = None
-    ) -> List[Any]:
+        self, query: str, params: dict[str, Any] | None = None
+    ) -> list[Any]:
         """
         Execute a raw SQL query.
 
@@ -224,7 +225,7 @@ class BaseRepository(Generic[ModelType], ABC):
         result = await self.session.execute(text(query), params or {})
         return result.fetchall()
 
-    async def count(self, search_fields: Optional[Dict[str, Any]] = None) -> int:
+    async def count(self, search_fields: dict[str, Any] | None = None) -> int:
         """
         Count records with optional filtering.
 
@@ -262,8 +263,8 @@ class MultiTableRepository(ABC):
 
     @abstractmethod
     async def search_across_tables(
-        self, search_criteria: Dict[str, Any]
-    ) -> Dict[str, List[Any]]:
+        self, search_criteria: dict[str, Any]
+    ) -> dict[str, list[Any]]:
         """
         Search across multiple tables based on criteria.
         Must be implemented by concrete repositories.

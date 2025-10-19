@@ -3,20 +3,22 @@ Products repository for FDA verification and product-related database operations
 Handles searches across multiple FDA database tables.
 """
 
-from typing import Dict, List, Any, Union
-from sqlalchemy import select, or_, and_, func
+from typing import Any, Union
+
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .database_repository import MultiTableRepository
 from app.models import (
-    DrugProducts,
-    FoodProducts,
-    DrugIndustry,
-    FoodIndustry,
-    MedicalDeviceIndustry,
     CosmeticIndustry,
+    DrugIndustry,
+    DrugProducts,
     DrugsNewApplications,
+    FoodIndustry,
+    FoodProducts,
+    MedicalDeviceIndustry,
 )
+
+from .database_repository import MultiTableRepository
 
 # Type aliases for better type safety
 ProductModel = Union[DrugProducts, FoodProducts]
@@ -47,8 +49,8 @@ class ProductsRepository(MultiTableRepository):
         }
 
     async def search_across_tables(
-        self, search_criteria: Dict[str, Any]
-    ) -> Dict[str, List[FDAModel]]:
+        self, search_criteria: dict[str, Any]
+    ) -> dict[str, list[FDAModel]]:
         """
         Search across all FDA tables for product verification.
 
@@ -106,8 +108,8 @@ class ProductsRepository(MultiTableRepository):
         return results
 
     async def _search_drug_products(
-        self, session: AsyncSession, criteria: Dict[str, Any]
-    ) -> List[DrugProducts]:
+        self, session: AsyncSession, criteria: dict[str, Any]
+    ) -> list[DrugProducts]:
         """Search in drug products table with word-level tokenized matching."""
         # Build separate condition groups for AND logic
         brand_conditions = []
@@ -195,8 +197,8 @@ class ProductsRepository(MultiTableRepository):
         return result.scalars().all()
 
     async def _search_food_products_fts(
-        self, session: AsyncSession, criteria: Dict[str, Any]
-    ) -> List[FoodProducts]:
+        self, session: AsyncSession, criteria: dict[str, Any]
+    ) -> list[FoodProducts]:
         """Search in food products table using full-text search with tsvector.
 
         This method uses PostgreSQL's full-text search capabilities with the
@@ -280,8 +282,8 @@ class ProductsRepository(MultiTableRepository):
         return results
 
     async def _search_food_products(
-        self, session: AsyncSession, criteria: Dict[str, Any]
-    ) -> List[FoodProducts]:
+        self, session: AsyncSession, criteria: dict[str, Any]
+    ) -> list[FoodProducts]:
         """Search in food products table with word-level tokenized matching."""
         print("\n=== DEBUG: _search_food_products called ===")
         print(f"Criteria: {criteria}")
@@ -399,8 +401,8 @@ class ProductsRepository(MultiTableRepository):
         return results
 
     async def _search_drug_industry(
-        self, session: AsyncSession, criteria: Dict[str, Any]
-    ) -> List[DrugIndustry]:
+        self, session: AsyncSession, criteria: dict[str, Any]
+    ) -> list[DrugIndustry]:
         """Search in drug industry establishments table."""
         conditions = []
 
@@ -425,8 +427,8 @@ class ProductsRepository(MultiTableRepository):
         return result.scalars().all()
 
     async def _search_food_industry(
-        self, session: AsyncSession, criteria: Dict[str, Any]
-    ) -> List[FoodIndustry]:
+        self, session: AsyncSession, criteria: dict[str, Any]
+    ) -> list[FoodIndustry]:
         """Search in food industry establishments table."""
         conditions = []
 
@@ -451,8 +453,8 @@ class ProductsRepository(MultiTableRepository):
         return result.scalars().all()
 
     async def _search_medical_device_industry(
-        self, session: AsyncSession, criteria: Dict[str, Any]
-    ) -> List[MedicalDeviceIndustry]:
+        self, session: AsyncSession, criteria: dict[str, Any]
+    ) -> list[MedicalDeviceIndustry]:
         """Search in medical device industry establishments table."""
         conditions = []
 
@@ -479,8 +481,8 @@ class ProductsRepository(MultiTableRepository):
         return result.scalars().all()
 
     async def _search_cosmetic_industry(
-        self, session: AsyncSession, criteria: Dict[str, Any]
-    ) -> List[CosmeticIndustry]:
+        self, session: AsyncSession, criteria: dict[str, Any]
+    ) -> list[CosmeticIndustry]:
         """Search in cosmetic industry establishments table."""
         conditions = []
 
@@ -505,8 +507,8 @@ class ProductsRepository(MultiTableRepository):
         return result.scalars().all()
 
     async def _search_drug_applications(
-        self, session: AsyncSession, criteria: Dict[str, Any]
-    ) -> List[DrugsNewApplications]:
+        self, session: AsyncSession, criteria: dict[str, Any]
+    ) -> list[DrugsNewApplications]:
         """Search in drug applications table."""
         conditions = []
 
@@ -535,7 +537,7 @@ class ProductsRepository(MultiTableRepository):
 
         return result.scalars().all()
 
-    async def search_by_any_id(self, id_value: str) -> List[FDAModel]:
+    async def search_by_any_id(self, id_value: str) -> list[FDAModel]:
         """
         Optimized search that queries only relevant tables for any ID type.
         Reduces queries from 21 to 7 by smartly targeting tables based on ID fields.
@@ -594,7 +596,7 @@ class ProductsRepository(MultiTableRepository):
 
     async def search_by_registration_number(
         self, registration_number: str
-    ) -> List[FDAModel]:
+    ) -> list[FDAModel]:
         """
         Search specifically by registration number across relevant tables.
 
@@ -616,7 +618,7 @@ class ProductsRepository(MultiTableRepository):
 
     async def search_by_license_number(
         self, license_number: str
-    ) -> List[EstablishmentModel]:
+    ) -> list[EstablishmentModel]:
         """
         Search specifically by license number across establishment tables.
 
@@ -646,7 +648,7 @@ class ProductsRepository(MultiTableRepository):
 
     async def search_by_document_tracking_number(
         self, tracking_number: str
-    ) -> List[DrugsNewApplications]:
+    ) -> list[DrugsNewApplications]:
         """
         Search specifically by document tracking number in applications.
 
@@ -666,8 +668,8 @@ class ProductsRepository(MultiTableRepository):
         return matches
 
     async def fuzzy_search_by_product_info(
-        self, product_info: Dict[str, Any]
-    ) -> List[FDAModel]:
+        self, product_info: dict[str, Any]
+    ) -> list[FDAModel]:
         """
         Perform fuzzy search using multiple product information fields.
 
@@ -692,7 +694,7 @@ class ProductsRepository(MultiTableRepository):
 
     def _model_to_dict(
         self, model_instance: FDAModel, table_name: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Convert a model instance to dictionary format for backward compatibility.
 

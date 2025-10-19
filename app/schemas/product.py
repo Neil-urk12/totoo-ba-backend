@@ -1,29 +1,29 @@
-from pydantic import BaseModel
 from datetime import date
-from typing import Optional
+
+from pydantic import BaseModel
 
 
 class ProductBase(BaseModel):
     """Base schema for Product with required fields"""
 
     registration_number: str
-    product_type: Optional[str] = None
-    product_name: Optional[str] = None
-    generic_name: Optional[str] = None
-    brand_name: Optional[str] = None
-    dosage_strength: Optional[str] = None
-    dosage_form: Optional[str] = None
-    classification: Optional[str] = None
-    packaging: Optional[str] = None
-    pharmacologic_category: Optional[str] = None
-    manufacturer: Optional[str] = None
-    country_of_origin: Optional[str] = None
-    trader: Optional[str] = None
-    importer: Optional[str] = None
-    distributor: Optional[str] = None
-    application_type: Optional[str] = None
-    issuance_date: Optional[date] = None
-    expiry_date: Optional[date] = None
+    product_type: str | None = None
+    product_name: str | None = None
+    generic_name: str | None = None
+    brand_name: str | None = None
+    dosage_strength: str | None = None
+    dosage_form: str | None = None
+    classification: str | None = None
+    packaging: str | None = None
+    pharmacologic_category: str | None = None
+    manufacturer: str | None = None
+    country_of_origin: str | None = None
+    trader: str | None = None
+    importer: str | None = None
+    distributor: str | None = None
+    application_type: str | None = None
+    issuance_date: date | None = None
+    expiry_date: date | None = None
 
 
 class ProductCreate(ProductBase):
@@ -35,23 +35,23 @@ class ProductCreate(ProductBase):
 class ProductUpdate(BaseModel):
     """Schema for updating an existing Product record"""
 
-    product_name: Optional[str] = None
-    generic_name: Optional[str] = None
-    brand_name: Optional[str] = None
-    dosage_strength: Optional[str] = None
-    dosage_form: Optional[str] = None
-    classification: Optional[str] = None
-    packaging: Optional[str] = None
-    pharmacologic_category: Optional[str] = None
-    manufacturer: Optional[str] = None
-    country_of_origin: Optional[str] = None
-    trader: Optional[str] = None
-    importer: Optional[str] = None
-    distributor: Optional[str] = None
-    application_type: Optional[str] = None
-    issuance_date: Optional[date] = None
-    expiry_date: Optional[date] = None
-    product_type: Optional[str] = None
+    product_name: str | None = None
+    generic_name: str | None = None
+    brand_name: str | None = None
+    dosage_strength: str | None = None
+    dosage_form: str | None = None
+    classification: str | None = None
+    packaging: str | None = None
+    pharmacologic_category: str | None = None
+    manufacturer: str | None = None
+    country_of_origin: str | None = None
+    trader: str | None = None
+    importer: str | None = None
+    distributor: str | None = None
+    application_type: str | None = None
+    issuance_date: date | None = None
+    expiry_date: date | None = None
+    product_type: str | None = None
 
 
 class Product(ProductBase):

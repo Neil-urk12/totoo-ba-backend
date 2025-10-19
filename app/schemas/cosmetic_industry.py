@@ -1,6 +1,6 @@
-from pydantic import BaseModel
 from datetime import date
-from typing import Optional
+
+from pydantic import BaseModel
 
 
 class CosmeticIndustryBase(BaseModel):
@@ -19,13 +19,13 @@ class CosmeticIndustryCreate(CosmeticIndustryBase):
 
 
 class CosmeticIndustryUpdate(BaseModel):
-    name_of_establishment: Optional[str] = None
-    owner: Optional[str] = None
-    address: Optional[str] = None
-    region: Optional[str] = None
-    activity: Optional[str] = None
-    issuance_date: Optional[date] = None
-    expiry_date: Optional[date] = None
+    name_of_establishment: str | None = None
+    owner: str | None = None
+    address: str | None = None
+    region: str | None = None
+    activity: str | None = None
+    issuance_date: date | None = None
+    expiry_date: date | None = None
 
 
 class CosmeticIndustryResponse(CosmeticIndustryBase):
