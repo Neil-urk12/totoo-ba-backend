@@ -1,25 +1,25 @@
-from pydantic import BaseModel
 from datetime import date
-from typing import Optional
+
+from pydantic import BaseModel
 
 
 class DrugProductsBase(BaseModel):
     registration_number: str
-    generic_name: Optional[str] = None
-    brand_name: Optional[str] = None
-    dosage_strength: Optional[str] = None
-    dosage_form: Optional[str] = None
-    classification: Optional[str] = None
-    packaging: Optional[str] = None
-    pharmacologic_category: Optional[str] = None
-    manufacturer: Optional[str] = None
-    country_of_origin: Optional[str] = None
-    trader: Optional[str] = None
-    importer: Optional[str] = None
-    distributor: Optional[str] = None
-    application_type: Optional[str] = None
-    issuance_date: Optional[date] = None
-    expiry_date: Optional[date] = None
+    generic_name: str | None = None
+    brand_name: str | None = None
+    dosage_strength: str | None = None
+    dosage_form: str | None = None
+    classification: str | None = None
+    packaging: str | None = None
+    pharmacologic_category: str | None = None
+    manufacturer: str | None = None
+    country_of_origin: str | None = None
+    trader: str | None = None
+    importer: str | None = None
+    distributor: str | None = None
+    application_type: str | None = None
+    issuance_date: date | None = None
+    expiry_date: date | None = None
 
 
 class DrugProductsCreate(DrugProductsBase):
@@ -27,21 +27,21 @@ class DrugProductsCreate(DrugProductsBase):
 
 
 class DrugProductsUpdate(BaseModel):
-    generic_name: Optional[str] = None
-    brand_name: Optional[str] = None
-    dosage_strength: Optional[str] = None
-    dosage_form: Optional[str] = None
-    classification: Optional[str] = None
-    packaging: Optional[str] = None
-    pharmacologic_category: Optional[str] = None
-    manufacturer: Optional[str] = None
-    country_of_origin: Optional[str] = None
-    trader: Optional[str] = None
-    importer: Optional[str] = None
-    distributor: Optional[str] = None
-    application_type: Optional[str] = None
-    issuance_date: Optional[date] = None
-    expiry_date: Optional[date] = None
+    generic_name: str | None = None
+    brand_name: str | None = None
+    dosage_strength: str | None = None
+    dosage_form: str | None = None
+    classification: str | None = None
+    packaging: str | None = None
+    pharmacologic_category: str | None = None
+    manufacturer: str | None = None
+    country_of_origin: str | None = None
+    trader: str | None = None
+    importer: str | None = None
+    distributor: str | None = None
+    application_type: str | None = None
+    issuance_date: date | None = None
+    expiry_date: date | None = None
 
 
 class DrugProductsResponse(DrugProductsBase):

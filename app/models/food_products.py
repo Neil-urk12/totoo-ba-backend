@@ -1,8 +1,10 @@
-from sqlalchemy import String, Date
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import TSVECTOR
-from app.core.database import Base
 from datetime import date
+
+from sqlalchemy import Date, String
+from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.core.database import Base
 
 
 class FoodProducts(Base):

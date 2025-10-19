@@ -1,22 +1,23 @@
 # extractor_to_db_food_products.py
-import os
 import asyncio
+import logging
+import os
+import re
+import traceback
+from contextlib import asynccontextmanager
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any
+
 import pandas as pd
 from bs4 import BeautifulSoup
-from datetime import datetime, date
-from typing import List, Dict, Any, Optional
+from dotenv import load_dotenv
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError, OperationalError
-from dotenv import load_dotenv
-import logging
-from pathlib import Path
-import traceback
-import re
-from contextlib import asynccontextmanager
 
 # Import your database configuration
-from app.core.database import async_session, engine, Base
+from app.core.database import Base, async_session, engine
 
 # Import the FoodProducts model
 from app.models.food_products import FoodProducts
@@ -128,7 +129,7 @@ def extract_data_from_html(file_path: str) -> pd.DataFrame:
 
         for encoding in encodings:
             try:
-                with open(file_path, "r", encoding=encoding) as f:
+                with open(file_path, encoding=encoding) as f:
                     content = f.read()
                 logger.info(f"Successfully read file with {encoding} encoding")
                 break
@@ -205,7 +206,7 @@ def extract_data_from_html(file_path: str) -> pd.DataFrame:
 # ==============================================================================
 # DATA TRANSFORMATION & CLEANING
 # ==============================================================================
-def parse_date_safely(date_str: Any) -> Optional[date]:
+def parse_date_safely(date_str: Any) -> date | None:
     """
     Safely parse various date formats.
 
@@ -255,7 +256,7 @@ def parse_date_safely(date_str: Any) -> Optional[date]:
     return None
 
 
-def clean_string_field(value: Any, max_length: Optional[int] = None) -> Optional[str]:
+def clean_string_field(value: Any, max_length: int | None = None) -> str | None:
     """
     Clean and validate string fields with regex support.
     Handles Excel formula notation and other edge cases.
@@ -629,7 +630,7 @@ async def get_session_with_rollback():
 
 
 @retry_on_failure(max_retries=3, delay=2.0)
-async def bulk_upsert_data(data: List[Dict[str, Any]], batch_size: int = 500):
+async def bulk_upsert_data(data: list[dict[str, Any]], batch_size: int = 500):
     """
     Insert data into database with conflict resolution (upsert).
     Uses PostgreSQL's ON CONFLICT clause for efficient upserts.

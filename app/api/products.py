@@ -1,13 +1,12 @@
-from fastapi import APIRouter, HTTPException, File, UploadFile, Depends
-from pydantic import BaseModel, Field
-from typing import Optional
-import os
 import json
+import os
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel, Field
 
 # Import dependencies and repository
 from app.api.deps import get_product_verification_service
 from app.services.product_verification_service import ProductVerificationService
-
 
 # Initialize router
 router = APIRouter(prefix="/products")
@@ -20,7 +19,7 @@ class ProductVerificationResponse(BaseModel):
     product_id: str
     is_verified: bool
     message: str
-    details: Optional[dict] = None
+    details: dict | None = None
 
 
 # Initialize Gemini client
@@ -35,40 +34,38 @@ try:
     else:
         GEMINI_AVAILABLE = False
         client = None
-        print("Warning: GEMINI_API_KEY not found in environment variables")
 except ImportError:
     GEMINI_AVAILABLE = False
     client = None
-    print("Warning: google-genai package not installed. Run: pip install google-genai")
 
 
 # Pydantic models for structured Gemini output
 class ExtractedFields(BaseModel):
     """Structured fields extracted from product image"""
 
-    registration_number: Optional[str] = Field(
+    registration_number: str | None = Field(
         None,
         description="FDA Philippines registration number (e.g., BR-XXXX, DR-XXXXX, FR-XXXXX)",
         alias="registration_number",
     )
-    brand_name: Optional[str] = Field(
+    brand_name: str | None = Field(
         None, description="Brand name of the product", alias="brand_name"
     )
-    product_description: Optional[str] = Field(
+    product_description: str | None = Field(
         None,
         description="Product description, type, flavor, or generic name. For food: product type/flavor. For drugs: generic name",
         alias="product_description",
     )
-    manufacturer: Optional[str] = Field(
+    manufacturer: str | None = Field(
         None, description="Manufacturer or distributor name", alias="manufacturer"
     )
-    expiry_date: Optional[str] = Field(
+    expiry_date: str | None = Field(
         None, description="Expiration or best before date", alias="expiry_date"
     )
-    batch_number: Optional[str] = Field(
+    batch_number: str | None = Field(
         None, description="Batch or lot number", alias="batch_number"
     )
-    net_weight: Optional[str] = Field(
+    net_weight: str | None = Field(
         None, description="Net weight or volume", alias="net_weight"
     )
 
@@ -79,7 +76,7 @@ class ExtractedFields(BaseModel):
 class VerificationResult(BaseModel):
     """AI verification result with structured output"""
 
-    matched_product_index: Optional[int] = Field(
+    matched_product_index: int | None = Field(
         None, description="Index of matched product from database (null if no match)"
     )
     confidence: int = Field(..., ge=0, le=100, description="Confidence score 0-100")
@@ -94,7 +91,7 @@ class ImageVerificationResponse(BaseModel):
 
     verification_status: str  # 'verified', 'uncertain', 'not_found'
     confidence: int
-    matched_product: Optional[dict] = None
+    matched_product: dict | None = None
     extracted_fields: dict
     ai_reasoning: str
     alternative_matches: list = []
@@ -252,10 +249,9 @@ async def verify_product(
             details=details,
         )
 
-    except Exception as e:
+    except Exception:
         # Handle database errors gracefully
         # Log the detailed error server-side for debugging
-        print(f"Repository query failed: {str(e)}")  # In production, use proper logging
         return ProductVerificationResponse(
             product_id=product_id,
             is_verified=False,
@@ -301,12 +297,12 @@ async def verify_product_image(
         )
 
     # Check file size (max 5MB)
-    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+    max_file_size = 5 * 1024 * 1024  # 5MB
     image.file.seek(0, 2)  # Move to end of file to get size
     file_size = image.file.tell()
     image.file.seek(0)  # Move back to beginning of file
 
-    if file_size > MAX_FILE_SIZE:
+    if file_size > max_file_size:
         raise HTTPException(
             status_code=413, detail="File too large. Maximum size is 5MB."
         )
@@ -331,22 +327,10 @@ async def verify_product_image(
         search_dict = convert_extracted_fields_to_search_dict(
             extracted_data["extracted_fields"]
         )
-        print("\n=== DEBUG: Search Dictionary ===")
-        print(f"Search dict: {search_dict}")
 
         search_results = await verification_service.search_and_rank_products(
             search_dict
         )
-        print("\n=== DEBUG: Repository Results ===")
-        print(f"Total results returned: {len(search_results)}")
-        for i, result in enumerate(search_results[:5]):  # Show first 5
-            print(
-                f"  [{i}] Type: {result.product_type}, Score: {result.relevance_score}, Fields: {result.matched_fields}"
-            )
-            if hasattr(result.model_instance, "brand_name"):
-                print(f"      Brand: {result.model_instance.brand_name}")
-            if hasattr(result.model_instance, "product_name"):
-                print(f"      Product: {result.model_instance.product_name}")
 
         fuzzy_results = [result.to_dict() for result in search_results]
 
@@ -382,10 +366,9 @@ async def verify_product_image(
 
     except Exception as e:
         # Log the detailed error server-side for debugging
-        print(f"Error processing image: {str(e)}")  # In production, use proper logging
         raise HTTPException(
             status_code=500, detail="Image verification failed. Please try again."
-        )
+        ) from e
     finally:
         await image.close()
 
@@ -456,12 +439,12 @@ IMPORTANT EXTRACTION RULES:
 1. For brand_name: Extract the PRIMARY brand identifier only (shortest recognizable brand)
    - Example: "C2" not "C2 COOL & CLEAN"
    - Example: "Nestle" not "Nestle Pure Life"
-   
+
 2. For product_description: Extract the product type/flavor/description that describes what the product is
    - For beverages: "APPLE GREEN TEA", "ORANGE JUICE", "COLA"
    - For medicines: "PAIN RELIEVER", "COUGH SYRUP", "VITAMINS"
    - For food: "CHOCOLATE MILK", "INSTANT NOODLES", "COOKIES"
-   
+
 3. Extract exact text as it appears, but prioritize the SHORTEST meaningful brand name
 4. If a field is not visible or unclear, set it to null
 5. Pay special attention to FDA registration numbers (usually starts with letters like BR, DR, FR, etc.)
@@ -485,8 +468,6 @@ Also provide the complete raw text visible in the image for fallback matching.""
 
         extracted_fields: ExtractedFields = response.parsed
 
-        print(f"Extracted fields {extracted_fields}")
-
         # Also get raw text for additional context
         raw_text_prompt = "Extract all visible text from this image as plain text, preserving layout where possible."
         raw_response = client.models.generate_content(
@@ -502,12 +483,9 @@ Also provide the complete raw text visible in the image for fallback matching.""
 
     except Exception as e:
         # Log the detailed error server-side for debugging
-        print(
-            f"Gemini extraction failed: {str(e)}"
-        )  # In production, use proper logging
         raise HTTPException(
             status_code=500, detail="Image processing failed. Please try again."
-        )
+        ) from e
 
 
 async def ai_assisted_verification(
@@ -520,9 +498,6 @@ async def ai_assisted_verification(
     alternatives_text = "No potential matches found in database."
     if fuzzy_results:
         alternatives_text = json.dumps(fuzzy_results[:10], indent=2, ensure_ascii=False)
-
-    # Debug logging for candidates being sent to Gemini
-    print("FDA candidates given to Gemini:", fuzzy_results)
 
     prompt = f"""You are an FDA Philippines product verification expert with expertise in fuzzy matching.
 
@@ -555,7 +530,7 @@ IMPORTANT FUZZY MATCHING RULES:
   * Different word order
   * Minor spelling variations
   * Special characters and formatting differences
-  
+
 - FDA registration numbers are the STRONGEST identifier (if present)
 - If no registration number: rely on brand + product name combination
 - Consider OCR errors (e.g., "0" vs "O", "1" vs "l")
@@ -589,9 +564,8 @@ Provide structured output with your decision and clear reasoning."""
             "reasoning": result.reasoning,
         }
 
-    except Exception as e:
+    except Exception:
         # Log the detailed error server-side for debugging
-        print(f"AI verification failed: {str(e)}")  # In production, use proper logging
         return {
             "matched_product_index": None,
             "confidence": 0,

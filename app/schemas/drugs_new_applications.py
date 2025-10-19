@@ -1,17 +1,17 @@
+
 from pydantic import BaseModel
-from typing import Optional
 
 
 class DrugsNewApplicationsBase(BaseModel):
     document_tracking_number: str
-    applicant_company: Optional[str] = None
-    brand_name: Optional[str] = None
-    generic_name: Optional[str] = None
-    dosage_strength: Optional[str] = None
-    dosage_form: Optional[str] = None
-    packaging: Optional[str] = None
-    pharmacologic_category: Optional[str] = None
-    application_type: Optional[str] = None
+    applicant_company: str | None = None
+    brand_name: str | None = None
+    generic_name: str | None = None
+    dosage_strength: str | None = None
+    dosage_form: str | None = None
+    packaging: str | None = None
+    pharmacologic_category: str | None = None
+    application_type: str | None = None
 
 
 class DrugsNewApplicationsCreate(DrugsNewApplicationsBase):
@@ -19,14 +19,14 @@ class DrugsNewApplicationsCreate(DrugsNewApplicationsBase):
 
 
 class DrugsNewApplicationsUpdate(BaseModel):
-    applicant_company: Optional[str] = None
-    brand_name: Optional[str] = None
-    generic_name: Optional[str] = None
-    dosage_strength: Optional[str] = None
-    dosage_form: Optional[str] = None
-    packaging: Optional[str] = None
-    pharmacologic_category: Optional[str] = None
-    application_type: Optional[str] = None
+    applicant_company: str | None = None
+    brand_name: str | None = None
+    generic_name: str | None = None
+    dosage_strength: str | None = None
+    dosage_form: str | None = None
+    packaging: str | None = None
+    pharmacologic_category: str | None = None
+    application_type: str | None = None
 
 
 class DrugsNewApplicationsResponse(DrugsNewApplicationsBase):

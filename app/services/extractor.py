@@ -1,4 +1,5 @@
 import os
+
 from bs4 import BeautifulSoup
 
 file_path = ""
@@ -7,7 +8,7 @@ file_path = ""
 if os.path.exists(file_path):
     try:
         print("")
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             content = f.read()
 
         soup = BeautifulSoup(content, "html.parser")

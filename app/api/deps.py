@@ -3,15 +3,17 @@ Dependency injection for FastAPI endpoints.
 Provides database sessions and repository instances.
 """
 
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database import async_session
+
 from app.api.repository.products_repository import ProductsRepository
+from app.core.database import async_session
 from app.services.product_verification_service import ProductVerificationService
 
 
-async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_async_session() -> AsyncGenerator[AsyncSession]:
     """
     Dependency that provides an async database session with automatic transaction management.
 
@@ -37,7 +39,7 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
-async def get_transactional_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_transactional_session() -> AsyncGenerator[AsyncSession]:
     """
     Dependency that provides a session WITHOUT automatic commit.
     Use this when you need manual transaction control in service layer.

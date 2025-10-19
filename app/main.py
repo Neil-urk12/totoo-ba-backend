@@ -1,8 +1,9 @@
 # app/main.py
-from fastapi import FastAPI, Depends
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.core.config import Settings, get_settings
-from app.core.database import engine, Base
+from app.core.database import Base, engine
 
 # Initialize settings
 settings = get_settings()
