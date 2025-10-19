@@ -1,0 +1,184 @@
+[project]
+name = "ai-rag-product-checker"
+version = "1.0.0"
+description = "FastAPI-based service to verify FDA Philippines-regulated products using database lookups and AI-powered image analysis"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Your Name", email = "your.email@example.com" },
+]
+keywords = [
+    "fastapi",
+    "fda",
+    "product-verification",
+    "ai",
+    "rag",
+    "gemini",
+    "postgresql",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Framework :: FastAPI",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.32.0",
+    "sqlalchemy==2.0.36",
+    "psycopg2-binary==2.9.10",
+    "asyncpg==0.30.0",
+    "pydantic==2.9.2",
+    "pydantic-settings==2.6.0",
+    "httpx==0.28.0",
+    "beautifulsoup4==4.12.3",
+    "lxml==5.3.0",
+    "rapidfuzz==3.10.1",
+    "python-multipart==0.0.17",
+    "alembic==1.14.0",
+    "pandas>=2.0.0",
+    "xlrd>=2.0.1",
+    "openpyxl>=3.0.0",
+    "python-dotenv",
+    "google-genai",
+    "pytesseract",
+    "Pillow",
+    "fuzzywuzzy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "httpx",  # for testing
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/ai-rag-product-checker"
+Documentation = "https://github.com/yourusername/ai-rag-product-checker#readme"
+Repository = "https://github.com/yourusername/ai-rag-product-checker"
+Issues = "https://github.com/yourusername/ai-rag-product-checker/issues"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# ============================================================================
+# RUFF CONFIGURATION
+# ============================================================================
+[tool.ruff]
+line-length = 88
+target-version = "py313"  # Updated to match your Python 3.13
+
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "migrations",  # Alembic migrations
+    "data",  # Data directory
+    "*.egg-info",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "W",    # pycodestyle warnings
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "DTZ",  # flake8-datetimez (timezone-aware datetimes)
+    "T20",  # flake8-print (catch print statements)
+    "RET",  # flake8-return
+    "ARG",  # flake8-unused-arguments
+    "PTH",  # flake8-use-pathlib
+]
+
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+    "B008",   # Do not perform function calls in argument defaults (FastAPI Depends pattern)
+    "ARG001", # Unused function argument (common in FastAPI endpoints)
+    "ARG002", # Unused method argument (common in class methods)
+]
+
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when prefixed with underscore
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Unused imports in __init__.py files
+"migrations/**/*.py" = ["ALL"]  # Ignore linting in Alembic migrations
+"tests/**/*.py" = ["S101", "ARG"]  # Allow assert and unused args in tests
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+# ============================================================================
+# PYTEST CONFIGURATION
+# ============================================================================
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+    "--cov=app",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+asyncio_mode = "auto"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+# ============================================================================
+# COVERAGE CONFIGURATION
+# ============================================================================
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "*/tests/*",
+    "*/migrations/*",
+    "*/__pycache__/*",
+    "*/venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]

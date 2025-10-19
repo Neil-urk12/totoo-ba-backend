@@ -2,43 +2,43 @@ from .cosmetic_industry import (
     CosmeticIndustryBase,
     CosmeticIndustryCreate,
     CosmeticIndustryUpdate,
-    CosmeticIndustryResponse
+    CosmeticIndustryResponse,
 )
 from .drug_industry import (
     DrugIndustryBase,
     DrugIndustryCreate,
     DrugIndustryUpdate,
-    DrugIndustryResponse
+    DrugIndustryResponse,
 )
 from .drug_products import (
     DrugProductsBase,
     DrugProductsCreate,
     DrugProductsUpdate,
-    DrugProductsResponse
+    DrugProductsResponse,
 )
 from .drugs_new_applications import (
     DrugsNewApplicationsBase,
     DrugsNewApplicationsCreate,
     DrugsNewApplicationsUpdate,
-    DrugsNewApplicationsResponse
+    DrugsNewApplicationsResponse,
 )
 from .food_industry import (
     FoodIndustryBase,
     FoodIndustryCreate,
     FoodIndustryUpdate,
-    FoodIndustryResponse
+    FoodIndustryResponse,
 )
 from .food_products import (
     FoodProductsBase,
     FoodProductsCreate,
     FoodProductsUpdate,
-    FoodProductsResponse
+    FoodProductsResponse,
 )
 from .medical_device_industry import (
     MedicalDeviceIndustryBase,
     MedicalDeviceIndustryCreate,
     MedicalDeviceIndustryUpdate,
-    MedicalDeviceIndustryResponse
+    MedicalDeviceIndustryResponse,
 )
 
 __all__ = [

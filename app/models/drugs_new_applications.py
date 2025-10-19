@@ -6,12 +6,15 @@ from app.core.database import Base
 class DrugsNewApplications(Base):
     """
     SQLAlchemy model for the Drugs New Applications table in Supabase database.
-    
+
     Represents new drug applications with their tracking information.
     """
+
     __tablename__ = "Drugs New Applications"
 
-    document_tracking_number: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
+    document_tracking_number: Mapped[str] = mapped_column(
+        String, primary_key=True, nullable=False
+    )
     applicant_company: Mapped[str] = mapped_column(String, nullable=True)
     brand_name: Mapped[str] = mapped_column(String, nullable=True)
     generic_name: Mapped[str] = mapped_column(String, nullable=True)

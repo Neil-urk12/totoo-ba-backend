@@ -3,7 +3,6 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import Settings, get_settings
 from app.core.database import engine, Base
-import asyncio
 
 # Initialize settings
 settings = get_settings()
@@ -22,6 +21,7 @@ app.add_middleware(
 
 from app.core.database import test_connection_async
 
+
 @app.on_event("startup")
 async def startup():
     """Initialize database on startup"""
@@ -29,7 +29,7 @@ async def startup():
     print(f"🌍 Environment: {settings.environment}")
     print(f"🔧 Debug Mode: {settings.debug}")
     print(f"📊 Database: {settings.database_url.split('@')[1]}")  # Hide credentials
-    
+
     # Only try to create tables if we have a valid engine
     if engine is not None:
         try:
@@ -40,16 +40,19 @@ async def startup():
             print(f"❌ Failed to initialize database tables: {e}")
     else:
         print("❌ No database engine available - skipping table creation")
-    
+
     # Test database connection
     if await test_connection_async():
         print("✅ Connected to database successfully")
     else:
         print("❌ Failed to connect to database")
 
+
 # Include routers
 from app.api.products import router as products_router
+
 app.include_router(products_router, prefix=settings.api_prefix)
+
 
 @app.get("/")
 async def root():
@@ -57,8 +60,9 @@ async def root():
         "app": settings.app_name,
         "version": settings.app_version,
         "environment": settings.environment,
-        "status": "running"
+        "status": "running",
     }
+
 
 @app.get("/health")
 async def health_check(settings: Settings = Depends(get_settings)):
@@ -66,5 +70,5 @@ async def health_check(settings: Settings = Depends(get_settings)):
     return {
         "status": "healthy",
         "environment": settings.environment,
-        "database": "connected"
+        "database": "connected",
     }

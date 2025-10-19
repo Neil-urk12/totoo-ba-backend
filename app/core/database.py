@@ -45,7 +45,9 @@ else:
 
 # Async sessionmaker
 if async_engine:
-    async_session = sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
+    async_session = sessionmaker(
+        async_engine, class_=AsyncSession, expire_on_commit=False
+    )
 else:
     async_session = None
 
@@ -66,7 +68,6 @@ def get_db():
         db.close()
 
 
-from app.models.food_products import FoodProducts
 
 
 def test_connection():
@@ -95,7 +96,7 @@ async def test_connection_async():
     if async_engine is None or async_session is None:
         print("❌ Database connection not available - engine or session is None")
         return False
-        
+
     try:
         # Test raw SQL query
         async with async_engine.begin() as conn:
@@ -110,10 +111,7 @@ async def test_connection_async():
         from app.models.food_products import FoodProducts
 
         async with async_session() as session:
-            query = (
-                select(FoodProducts)
-                .limit(10)
-            )
+            query = select(FoodProducts).limit(10)
             result = await session.execute(query)
             products = result.scalars().all()
             print(

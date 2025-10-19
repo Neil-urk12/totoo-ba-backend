@@ -7,12 +7,15 @@ from datetime import date
 class FoodIndustry(Base):
     """
     SQLAlchemy model for the Food Industry table in Supabase database.
-    
+
     Represents food industry establishments with their licensing information.
     """
+
     __tablename__ = "Food Industry"
 
-    license_number: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
+    license_number: Mapped[str] = mapped_column(
+        String, primary_key=True, nullable=False
+    )
     name_of_establishment: Mapped[str] = mapped_column(String, nullable=False)
     owner: Mapped[str] = mapped_column(String, nullable=False)
     address: Mapped[str] = mapped_column(String, nullable=False)

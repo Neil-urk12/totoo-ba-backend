@@ -5,6 +5,7 @@ from typing import Optional
 
 class ProductBase(BaseModel):
     """Base schema for Product with required fields"""
+
     registration_number: str
     product_type: Optional[str] = None
     product_name: Optional[str] = None
@@ -27,11 +28,13 @@ class ProductBase(BaseModel):
 
 class ProductCreate(ProductBase):
     """Schema for creating a new Product record"""
+
     pass
 
 
 class ProductUpdate(BaseModel):
     """Schema for updating an existing Product record"""
+
     product_name: Optional[str] = None
     generic_name: Optional[str] = None
     brand_name: Optional[str] = None
@@ -53,6 +56,6 @@ class ProductUpdate(BaseModel):
 
 class Product(ProductBase):
     """Schema for Product with all fields including the primary key"""
-    
+
     class Config:
         from_attributes = True

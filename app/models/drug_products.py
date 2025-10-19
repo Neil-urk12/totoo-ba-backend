@@ -7,12 +7,15 @@ from datetime import date
 class DrugProducts(Base):
     """
     SQLAlchemy model for the Drug Products table in Supabase database.
-    
+
     Represents drug products with their registration and product information.
     """
+
     __tablename__ = "drug_products"
 
-    registration_number: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
+    registration_number: Mapped[str] = mapped_column(
+        String, primary_key=True, nullable=False
+    )
     generic_name: Mapped[str] = mapped_column(String, nullable=True)
     brand_name: Mapped[str] = mapped_column(String, nullable=True)
     dosage_strength: Mapped[str] = mapped_column(String, nullable=True)

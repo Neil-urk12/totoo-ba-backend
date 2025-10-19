@@ -10,10 +10,10 @@ from . import drug_industry
 
 __all__ = [
     "DrugIndustry",
-    "DrugProducts", 
+    "DrugProducts",
     "FoodIndustry",
     "FoodProducts",
-    "MedicalDeviceIndustry", 
+    "MedicalDeviceIndustry",
     "CosmeticIndustry",
-    "DrugsNewApplications"
+    "DrugsNewApplications",
 ]

@@ -7,12 +7,15 @@ from datetime import date
 class CosmeticIndustry(Base):
     """
     SQLAlchemy model for the Cosmetic Industry table in Supabase database.
-    
+
     Represents cosmetic industry establishments with their licensing information.
     """
+
     __tablename__ = "Cosmetic Industry"
 
-    license_number: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
+    license_number: Mapped[str] = mapped_column(
+        String, primary_key=True, nullable=False
+    )
     name_of_establishment: Mapped[str] = mapped_column(String, nullable=False)
     owner: Mapped[str] = mapped_column(String, nullable=False)
     address: Mapped[str] = mapped_column(String, nullable=False)
