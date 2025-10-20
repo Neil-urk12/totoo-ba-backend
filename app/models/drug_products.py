@@ -2,6 +2,7 @@ from datetime import date
 
 from sqlalchemy import Date, String
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import TSVECTOR
 
 from app.core.database import Base
 
@@ -33,6 +34,7 @@ class DrugProducts(Base):
     application_type: Mapped[str] = mapped_column(String, nullable=True)
     issuance_date: Mapped[date] = mapped_column(Date, nullable=True)
     expiry_date: Mapped[date] = mapped_column(Date, nullable=True)
+    search_vector: Mapped[str] = mapped_column(TSVECTOR, nullable=True)
 
     def __repr__(self) -> str:
         return f"<DrugProducts(registration_number='{self.registration_number}', brand_name='{self.brand_name}')>"

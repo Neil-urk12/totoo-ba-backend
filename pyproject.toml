@@ -51,6 +51,9 @@ dependencies = [
     "pytesseract",
     "Pillow",
     "fuzzywuzzy",
+    "groq>=0.4.0",
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
 ]
 
 [project.optional-dependencies]
