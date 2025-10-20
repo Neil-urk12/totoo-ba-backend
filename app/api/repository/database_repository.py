@@ -4,7 +4,7 @@ Provides common database operations and patterns for all repositories.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
+from typing import Any, TypeVar
 
 from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +14,7 @@ from sqlalchemy.orm import declarative_base
 ModelType = TypeVar("ModelType", bound=declarative_base())
 
 
-class BaseRepository(Generic[ModelType], ABC):
+class BaseRepository[ModelType](ABC):  # noqa: B024
     """
     Base repository class providing common database operations.
     All specific repositories should inherit from this class.

@@ -4,7 +4,6 @@ Implements a three-layer approach for efficient and accurate text extraction fro
 """
 
 import hashlib
-import io
 import os
 import time
 from dataclasses import dataclass
@@ -28,10 +27,7 @@ except ImportError:
 
 try:
     GROQ_AVAILABLE = bool(os.getenv("GROQ_API_KEY"))
-    if GROQ_AVAILABLE:
-        groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-    else:
-        groq_client = None
+    groq_client = Groq(api_key=os.getenv("GROQ_API_KEY")) if GROQ_AVAILABLE else None
 except Exception:
     GROQ_AVAILABLE = False
     groq_client = None
@@ -118,18 +114,14 @@ class HybridOCRService:
         if not self._ocr_initialized:
             try:
                 import pytesseract
-                from PIL import Image
-                
+
                 # Test if tesseract is available
                 pytesseract.get_tesseract_version()
-                
+
                 self.ocr_reader = pytesseract
                 self.ocr_type = 'tesseract'
                 self._ocr_initialized = True
-                print("✅ Tesseract OCR initialized successfully")
-            except Exception as e:
-                print(f"⚠️  Tesseract initialization failed: {e}")
-                print("    Will use Groq + Gemini mode (no OCR acceleration)")
+            except Exception:
                 self.ocr_reader = None
                 self.ocr_type = None
                 self._ocr_initialized = True
@@ -157,9 +149,8 @@ class HybridOCRService:
         )
 
         # Denoise
-        processed = cv2.fastNlMeansDenoising(processed, None, 10, 7, 21)
+        return cv2.fastNlMeansDenoising(processed, None, 10, 7, 21)
 
-        return processed
 
     def _extract_with_tesseract(self, image_bytes: bytes) -> list[OCRResult]:
         """
@@ -173,21 +164,20 @@ class HybridOCRService:
         """
         # Ensure OCR is initialized (lazy loading)
         self._ensure_ocr_initialized()
-        
+
         if not self.ocr_reader:
             raise RuntimeError("Tesseract OCR is not available")
 
         # Convert bytes to image
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
+
         # Convert to PIL Image for Tesseract
-        from PIL import Image
         img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-        
+
         # Get detailed data from Tesseract
         data = self.ocr_reader.image_to_data(img_pil, output_type='dict')
-        
+
         # Parse Tesseract results
         ocr_results = []
         n_boxes = len(data['text'])
@@ -196,11 +186,11 @@ class HybridOCRService:
             if text:  # Skip empty text
                 # Tesseract confidence is 0-100, convert to 0-1
                 confidence = float(data['conf'][i]) / 100.0
-                
+
                 # Get bounding box coordinates
                 x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
                 bbox = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
-                
+
                 is_low_confidence = confidence < 0.85
                 ocr_results.append(
                     OCRResult(
@@ -488,8 +478,7 @@ Return as JSON with these exact field names."""
         """
         metadata = ProcessingMetadata()
         start_time = time.time()
-        
-        print("\n🚀 Starting hybrid OCR pipeline...")
+
 
         # Layer 1: Tesseract OCR for fast text extraction
         ocr_start = time.time()
@@ -501,9 +490,7 @@ Return as JSON with these exact field names."""
             metadata.paddle_time = time.time() - ocr_start
             metadata.paddle_confidence = confidence_report.average_confidence
             metadata.layers_used.append("Tesseract OCR")
-            
-            print(f"✅ OCR completed in {metadata.paddle_time:.2f}s (confidence: {confidence_report.average_confidence:.0%})")
-            print(f"   Extracted text: {raw_text[:100]}..." if len(raw_text) > 100 else f"   Extracted text: {raw_text}")
+
 
         except Exception as e:
             # Fallback to Gemini if OCR fails completely
@@ -519,16 +506,13 @@ Return as JSON with these exact field names."""
 
         # Layer 2: Groq for structured extraction
         groq_start = time.time()
-        print("🔄 Calling Groq API for structured extraction...")
         try:
             groq_data = await self._extract_with_groq(
                 raw_text, confidence_report.average_confidence
             )
             metadata.groq_time = time.time() - groq_start
             metadata.layers_used.append("Groq Llama 3.1")
-            
-            print(f"✅ Groq extraction completed in {metadata.groq_time:.2f}s")
-            print(f"   Extracted fields: reg={groq_data.registration_number}, brand={groq_data.brand_name}, desc={groq_data.product_description}")
+
         except Exception:
             # If Groq fails, create empty data and force Gemini
             groq_data = ExtractedData()
@@ -539,7 +523,6 @@ Return as JSON with these exact field names."""
         # Layer 3: Gemini fallback (if needed)
         gemini_data = None
         if confidence_report.needs_gemini_fallback:
-            print(f"⚠️  Gemini fallback triggered: {confidence_report.reason}")
             gemini_start = time.time()
             try:
                 gemini_data = await self._extract_with_gemini_fallback(
@@ -548,7 +531,6 @@ Return as JSON with these exact field names."""
                 metadata.gemini_time = time.time() - gemini_start
                 metadata.gemini_used = True
                 metadata.layers_used.append("Gemini 2.5 Flash")
-                print(f"✅ Gemini extraction completed in {metadata.gemini_time:.2f}s")
             except Exception:
                 metadata.gemini_time = time.time() - gemini_start
 
@@ -556,10 +538,7 @@ Return as JSON with these exact field names."""
         final_data = self._merge_results(groq_data, gemini_data)
 
         metadata.total_time = time.time() - start_time
-        
-        print(f"\n✅ Pipeline completed in {metadata.total_time:.2f}s")
-        print(f"   Layers used: {' → '.join(metadata.layers_used)}")
-        print(f"   Gemini used: {'Yes' if metadata.gemini_used else 'No'}\n")
+
 
         return final_data, metadata
 

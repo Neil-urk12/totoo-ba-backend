@@ -5,7 +5,7 @@ import os
 import re
 import traceback
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -77,11 +77,11 @@ def extract_data_from_file(file_path: str) -> pd.DataFrame:
     """
     Extract data from HTML or CSV files.
     """
-    file_ext = os.path.splitext(file_path)[1].lower()
+    file_ext = Path(file_path).suffix.lower()
 
     if file_ext == ".csv":
         # Handle CSV files
-        logger.info(f"📂 Processing CSV file: {os.path.basename(file_path)}")
+        logger.info(f"📂 Processing CSV file: {Path(file_path).name}")
         try:
             df = pd.read_csv(file_path, encoding="utf-8")
             logger.info(f"✅ Extracted {len(df)} rows from CSV")
@@ -110,13 +110,14 @@ def extract_data_from_html(file_path: str) -> pd.DataFrame:
     Returns:
         DataFrame with extracted data
     """
-    logger.info(f"📂 Processing file: {os.path.basename(file_path)}")
+    file = Path(file_path)
+    logger.info(f"📂 Processing file: {file.name}")
 
-    if not os.path.exists(file_path):
+    if not file.exists():
         logger.error(f"File does not exist: {file_path}")
         raise FileNotFoundError(f"File does not exist: {file_path}")
 
-    file_size = os.path.getsize(file_path)
+    file_size = file.stat().st_size
     if file_size == 0:
         logger.warning(f"File is empty: {file_path}")
         return pd.DataFrame()
@@ -129,7 +130,7 @@ def extract_data_from_html(file_path: str) -> pd.DataFrame:
 
         for encoding in encodings:
             try:
-                with open(file_path, encoding=encoding) as f:
+                with file.open(encoding=encoding) as f:
                     content = f.read()
                 logger.info(f"Successfully read file with {encoding} encoding")
                 break
@@ -240,7 +241,7 @@ def parse_date_safely(date_str: Any) -> date | None:
 
     for fmt in date_formats:
         try:
-            dt = datetime.strptime(date_str, fmt)
+            dt = datetime.strptime(date_str, fmt)  # noqa: DTZ007
             return dt.date()
         except ValueError:
             continue
@@ -249,7 +250,7 @@ def parse_date_safely(date_str: Any) -> date | None:
         dt = pd.to_datetime(date_str, errors="coerce")
         if pd.notna(dt):
             return dt.date()
-    except:
+    except Exception:
         pass
 
     logger.warning(f"Could not parse date: {date_str}")
@@ -749,7 +750,7 @@ async def bulk_upsert_data(data: list[dict[str, Any]], batch_size: int = 500):
             # Save failed records to file for review
             if failed_records:
                 failed_file = (
-                    f"failed_records_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                    f"failed_records_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
                 )
                 try:
                     df_failed = pd.DataFrame(failed_records)
@@ -819,7 +820,7 @@ async def process_single_file(file_path: str, use_upsert: bool = True):
         logger.info(f"🚀 Starting processing of: {file_path}")
         logger.info(f"{'=' * 60}\n")
 
-        if not os.path.exists(file_path):
+        if not os.path.exists(file_path):  # noqa
             logger.error(f"File not found: {file_path}")
             return
 
@@ -895,7 +896,7 @@ async def process_multiple_files(
         logger.info(f"Pattern: {file_pattern}")
         logger.info(f"{'=' * 60}\n")
 
-        if not os.path.exists(folder_path):
+        if not os.path.exists(folder_path):  # noqa
             logger.error(f"Folder not found: {folder_path}")
             return
 

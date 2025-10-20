@@ -2,8 +2,9 @@
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.products import router as products_router
 from app.core.config import Settings, get_settings
-from app.core.database import Base, engine
+from app.core.database import Base, engine, test_connection_async
 
 # Initialize settings
 settings = get_settings()
@@ -20,37 +21,27 @@ app.add_middleware(
     allow_headers=settings.cors_allow_headers,
 )
 
-from app.core.database import test_connection_async
-
 
 @app.on_event("startup")
 async def startup():
     """Initialize database on startup"""
-    print(f"🚀 {settings.app_name} v{settings.app_version}")
-    print(f"🌍 Environment: {settings.environment}")
-    print(f"🔧 Debug Mode: {settings.debug}")
-    print(f"📊 Database: {settings.database_url.split('@')[1]}")  # Hide credentials
 
     # Only try to create tables if we have a valid engine
     if engine is not None:
         try:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-            print("✅ Database tables initialized")
-        except Exception as e:
-            print(f"❌ Failed to initialize database tables: {e}")
+        except Exception:
+            pass
     else:
-        print("❌ No database engine available - skipping table creation")
+        pass
 
     # Test database connection
     if await test_connection_async():
-        print("✅ Connected to database successfully")
+        pass
     else:
-        print("❌ Failed to connect to database")
+        pass
 
-
-# Include routers
-from app.api.products import router as products_router
 
 app.include_router(products_router, prefix=settings.api_prefix)
 

@@ -586,36 +586,36 @@ def fast_fuzzy_match(extracted_fields: dict, fuzzy_results: list[dict]) -> dict:
             "extracted_fields": extracted_fields,
             "reasoning": "No matching products found in database.",
         }
-    
+
     # Use the first result (already ranked by database query)
     best_match = fuzzy_results[0]
     best_index = 0
-    
+
     # Calculate confidence based on relevance score from database
     relevance = best_match.get("relevance_score", 0.0)
-    
+
     # Convert relevance to confidence (0-100)
     confidence = int(relevance * 100)
-    
+
     # Boost confidence if we have exact brand match
     if extracted_fields.get("brand_name"):
         db_brand = best_match.get("brand_name", "").upper()
         extracted_brand = extracted_fields["brand_name"].upper()
-        
+
         if extracted_brand in db_brand or db_brand in extracted_brand:
             confidence = min(100, confidence + 10)
-    
+
     # Build reasoning
     match_type = best_match.get("type", "product")
     brand = best_match.get("brand_name") or best_match.get("product_name", "Unknown")
-    
+
     if confidence >= 80:
         reasoning = f"Strong match found: {brand} ({match_type}). Database relevance score: {relevance:.0%}"
     elif confidence >= 60:
         reasoning = f"Good match found: {brand} ({match_type}). Database relevance score: {relevance:.0%}"
     else:
         reasoning = f"Weak match: {brand} ({match_type}). Low database relevance: {relevance:.0%}"
-    
+
     return {
         "matched_product_index": best_index,
         "confidence": confidence,
@@ -706,7 +706,7 @@ async def new_verify_product_image(
 
     import time as time_module
     endpoint_start = time_module.time()
-    
+
     try:
         # Read uploaded image as bytes
         image_bytes = await image.read()
@@ -740,15 +740,13 @@ async def new_verify_product_image(
         # Step 4: Search FDA database
         import time
         db_search_start = time.time()
-        print(f"🔍 Searching FDA database with: {search_dict}")
-        
+
         search_results = await verification_service.search_and_rank_products(
             search_dict
         )
         fuzzy_results = [result.to_dict() for result in search_results]
-        
-        db_search_time = time.time() - db_search_start
-        print(f"✅ Database search completed in {db_search_time:.2f}s, found {len(fuzzy_results)} results")
+
+        time.time() - db_search_start
 
         # Step 5: AI-assisted intelligent matching (using existing Gemini logic)
         extracted_fields_dict = {
@@ -763,16 +761,14 @@ async def new_verify_product_image(
 
         # Use fast fuzzy matching instead of Gemini
         ai_verify_start = time.time()
-        print(f"📊 Performing fast fuzzy matching with {len(fuzzy_results)} candidates...")
-        
+
         # Simple rule-based matching using existing data
         ai_verification = fast_fuzzy_match(
             extracted_fields=search_dict,
             fuzzy_results=fuzzy_results,
         )
-        
-        ai_verify_time = time.time() - ai_verify_start
-        print(f"✅ Fuzzy matching completed in {ai_verify_time:.2f}s (confidence: {ai_verification['confidence']}%)")
+
+        time.time() - ai_verify_start
 
         # Determine final match
         matched_product = None
@@ -798,9 +794,8 @@ async def new_verify_product_image(
             "paddle_confidence": round(processing_metadata.paddle_confidence, 2),
             "gemini_used": processing_metadata.gemini_used,
         }
-        
-        total_endpoint_time = time_module.time() - endpoint_start
-        print(f"\n🏁 Total endpoint time: {total_endpoint_time:.2f}s\n")
+
+        time_module.time() - endpoint_start
 
         return HybridVerificationResponse(
             verification_status=verification_status,

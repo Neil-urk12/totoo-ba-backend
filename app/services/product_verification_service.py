@@ -59,7 +59,7 @@ class ProductSearchResult:
                     "company_name": self.model_instance.company_name,
                 }
             )
-        elif isinstance(self.model_instance, DrugIndustry) or isinstance(self.model_instance, FoodIndustry) or isinstance(self.model_instance, MedicalDeviceIndustry) or isinstance(self.model_instance, CosmeticIndustry):
+        elif isinstance(self.model_instance, (DrugIndustry, FoodIndustry, MedicalDeviceIndustry, CosmeticIndustry)):
             result.update(
                 {
                     "license_number": self.model_instance.license_number,
@@ -215,13 +215,12 @@ class ProductVerificationService:
         # Registration number match (highest weight)
         if search_info.get("registration_number") and model_dict.get(
             "registration_number"
+        ) and (
+            search_info["registration_number"].lower()
+            in model_dict["registration_number"].lower()
         ):
-            if (
-                search_info["registration_number"].lower()
-                in model_dict["registration_number"].lower()
-            ):
-                score += 0.4  # 40% weight for registration number
-                matched_fields.append("registration_number")
+            score += 0.4  # 40% weight for registration number
+            matched_fields.append("registration_number")
 
         # Brand name match with improved scoring
         if search_info.get("brand_name"):
@@ -276,16 +275,16 @@ class ProductVerificationService:
                         matched_fields.append(field)
                         break
                     # Word-level tokenized match (handles word order variations)
-                    search_words = set(
+                    search_words = {
                         word.lower()
                         for word in product_description.strip().split()
                         if len(word) >= 3
-                    )
-                    field_words = set(
+                    }
+                    field_words = {
                         word.lower()
                         for word in str(model_dict[field]).strip().split()
                         if len(word) >= 3
-                    )
+                    }
 
                     if search_words and field_words:
                         # Calculate word overlap ratio
@@ -381,7 +380,7 @@ class ProductVerificationService:
                 "product_name": model_instance.product_name,
                 "company_name": model_instance.company_name,
             }
-        if isinstance(model_instance, DrugIndustry) or isinstance(model_instance, FoodIndustry) or isinstance(model_instance, MedicalDeviceIndustry) or isinstance(model_instance, CosmeticIndustry):
+        if isinstance(model_instance, (DrugIndustry, FoodIndustry, MedicalDeviceIndustry, CosmeticIndustry)):
             return {
                 "license_number": model_instance.license_number,
                 "name_of_establishment": model_instance.name_of_establishment,
@@ -393,6 +392,7 @@ class ProductVerificationService:
                 "applicant_company": model_instance.applicant_company,
                 "application_type": model_instance.application_type,
             }
+        return None
 
         # return {}
 
@@ -420,5 +420,6 @@ class ProductVerificationService:
             return "cosmetic_industry"
         if isinstance(model_instance, DrugsNewApplications):
             return "drug_application"
+        return None
 
         # return 'unknown'

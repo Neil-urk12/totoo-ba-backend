@@ -1,6 +1,6 @@
 # extractor_to_db.py
 import asyncio
-import os
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -31,23 +31,21 @@ def extract_data_from_html(file_path: str) -> pd.DataFrame:
     Returns:
         DataFrame with extracted data
     """
-    print(f"\n📂 Processing file: {os.path.basename(file_path)}")
 
-    if not os.path.exists(file_path):
+    file = Path(file_path)
+    if not file.exists():
         raise FileNotFoundError(f"File does not exist: {file_path}")
 
     try:
-        with open(file_path, encoding="utf-8") as f:
+        with file.open(encoding="utf-8") as f:
             content = f.read()
 
         soup = BeautifulSoup(content, "html.parser")
         tables = soup.find_all("table")
 
         if not tables:
-            print("❌ No tables found in file")
             return pd.DataFrame()
 
-        print(f"✅ Found {len(tables)} table(s)")
 
         # Process the first table (modify if you need multiple tables)
         table = tables[0]
@@ -56,7 +54,6 @@ def extract_data_from_html(file_path: str) -> pd.DataFrame:
         rows = table.find_all("tr")
 
         if len(rows) < 2:
-            print("❌ Table has no data rows")
             return pd.DataFrame()
 
         # Extract headers from first row
@@ -65,8 +62,6 @@ def extract_data_from_html(file_path: str) -> pd.DataFrame:
             cell.get_text(strip=True) for cell in header_row.find_all(["th", "td"])
         ]
 
-        print(f"📋 Headers: {headers}")
-        print(f"📊 Number of columns: {len(headers)}")
 
         # Extract data from remaining rows
         data = []
@@ -79,16 +74,11 @@ def extract_data_from_html(file_path: str) -> pd.DataFrame:
                 data.append(row_data)
 
         # Create DataFrame
-        df = pd.DataFrame(data, columns=headers)
+        return pd.DataFrame(data, columns=headers)
 
-        print(f"✅ Extracted {len(df)} rows")
-        print("\n📊 First few rows:")
-        print(df.head())
 
-        return df
 
-    except Exception as e:
-        print(f"❌ Failed to process {file_path}: {e}")
+    except Exception:
         raise
 
 
@@ -106,7 +96,6 @@ def transform_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         Cleaned DataFrame ready for database insertion
     """
-    print("\n🔄 Transforming data...")
 
     # Make a copy to avoid modifying original
     df_clean = df.copy()
@@ -311,7 +300,6 @@ def transform_dataframe(df: pd.DataFrame) -> pd.DataFrame:
                 break  # Only map the first match for each standard name
 
     # Print what mappings were found
-    print(f"📋 Found column mappings: {column_mapping}")
 
     # Rename columns based on mapping
     df_clean = df_clean.rename(columns=column_mapping)
@@ -357,12 +345,9 @@ def transform_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         df_clean = df_clean.dropna(subset=[reg_col])
 
     # Replace NaN with None for database compatibility
-    df_clean = df_clean.where(pd.notnull(df_clean), None)
+    return df_clean.where(pd.notnull(df_clean), None)
 
-    print(f"✅ Cleaned data: {len(df_clean)} rows")
-    print(f"\n📊 Cleaned columns: {list(df_clean.columns)}")
 
-    return df_clean
 
 
 # ==============================================================================
@@ -370,10 +355,8 @@ def transform_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 # ==============================================================================
 async def create_tables():
     """Create database tables if they don't exist"""
-    print("\n🔨 Creating database tables...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    print("✅ Tables created successfully")
 
 
 async def bulk_upsert_data(data: list[dict[str, Any]], batch_size: int = 1000):
@@ -385,13 +368,10 @@ async def bulk_upsert_data(data: list[dict[str, Any]], batch_size: int = 1000):
         data: List of dictionaries containing row data
         batch_size: Number of rows to insert per batch
     """
-    print(f"\n💾 Inserting {len(data)} rows into database...")
 
     async with async_session() as session:
         try:
             # Process in batches for better performance
-            total_inserted = 0
-            total_updated = 0
 
             for i in range(0, len(data), batch_size):
                 batch = data[i : i + batch_size]
@@ -425,17 +405,12 @@ async def bulk_upsert_data(data: list[dict[str, Any]], batch_size: int = 1000):
                 await session.execute(update_stmt)
                 await session.commit()
 
-                batch_num = (i // batch_size) + 1
-                total_batches = (len(data) + batch_size - 1) // batch_size
-                print(
-                    f"✅ Batch {batch_num}/{total_batches} processed ({len(batch)} rows)"
-                )
+                (i // batch_size) + 1
+                (len(data) + batch_size - 1) // batch_size
 
-            print(f"\n🎉 Successfully inserted/updated {len(data)} rows")
 
-        except Exception as e:
+        except Exception:
             await session.rollback()
-            print(f"❌ Error during bulk insert: {e}")
             raise
 
 
@@ -448,7 +423,6 @@ async def bulk_insert_simple(data: list[dict[str, Any]], batch_size: int = 1000)
         data: List of dictionaries containing row data
         batch_size: Number of rows to insert per batch
     """
-    print(f"\n💾 Inserting {len(data)} rows into database (simple mode)...")
 
     async with async_session() as session:
         try:
@@ -460,34 +434,27 @@ async def bulk_insert_simple(data: list[dict[str, Any]], batch_size: int = 1000)
                 await session.execute(stmt)
                 await session.commit()
 
-                batch_num = (i // batch_size) + 1
-                total_batches = (len(data) + batch_size - 1) // batch_size
-                print(
-                    f"✅ Batch {batch_num}/{total_batches} inserted ({len(batch)} rows)"
-                )
+                (i // batch_size) + 1
+                (len(data) + batch_size - 1) // batch_size
 
-            print(f"\n🎉 Successfully inserted {len(data)} rows")
 
-        except Exception as e:
+        except Exception:
             await session.rollback()
-            print(f"❌ Error during bulk insert: {e}")
             raise
 
 
 async def verify_insertion(limit: int = 5):
     """Verify data was inserted correctly by querying a few rows"""
-    print(f"\n🔍 Verifying insertion (showing {limit} rows)...")
 
     async with async_session() as session:
         result = await session.execute(select(DrugProducts).limit(limit))
         rows = result.scalars().all()
 
         if rows:
-            print(f"✅ Found {len(rows)} rows in database")
-            for row in rows:
-                print(f"  - {row.registration_number}: {row.brand_name}")
+            for _row in rows:
+                pass
         else:
-            print("⚠️  No rows found in database")
+            pass
 
 
 async def get_record_count() -> int:
@@ -520,7 +487,6 @@ async def process_single_file(file_path: str, use_upsert: bool = True):
         df = extract_data_from_html(file_path)
 
         if df.empty:
-            print("⚠️  No data extracted, skipping database insertion")
             return
 
         # Step 3: Transform data
@@ -539,11 +505,9 @@ async def process_single_file(file_path: str, use_upsert: bool = True):
         await verify_insertion(limit=5)
 
         # Step 7: Show total count
-        total = await get_record_count()
-        print(f"\n📊 Total records in database: {total}")
+        await get_record_count()
 
-    except Exception as e:
-        print(f"\n❌ Error processing file: {e}")
+    except Exception:
         raise
 
 
@@ -560,24 +524,20 @@ async def process_multiple_files(folder_path: str, use_upsert: bool = True):
         await create_tables()
 
         # Find all HTML files
+        folder = Path(folder_path)
         files = [
-            f for f in os.listdir(folder_path) if f.endswith((".html", ".xls", ".htm"))
+            f for f in folder.iterdir() if f.suffix in (".html", ".xls", ".htm")
         ]
 
         if not files:
-            print(f"⚠️  No HTML/XLS files found in {folder_path}")
             return
 
-        print(f"\n📁 Found {len(files)} files to process")
 
         all_data = []
 
         # Process each file
-        for idx, filename in enumerate(files, 1):
-            file_path = os.path.join(folder_path, filename)
-            print(f"\n{'=' * 60}")
-            print(f"Processing file {idx}/{len(files)}: {filename}")
-            print(f"{'=' * 60}")
+        for _idx, file in enumerate(files, 1):
+            file_path = str(file)  # Convert Path to string
 
             try:
                 # Extract and transform
@@ -585,17 +545,12 @@ async def process_multiple_files(folder_path: str, use_upsert: bool = True):
                 if not df.empty:
                     df_clean = transform_dataframe(df)
                     all_data.extend(df_clean.to_dict("records"))
-            except Exception as e:
-                print(f"⚠️  Skipping file {filename} due to error: {e}")
+            except Exception:
                 continue
 
         if not all_data:
-            print("\n⚠️  No data extracted from any files")
             return
 
-        print(f"\n{'=' * 60}")
-        print(f"📊 Total rows extracted from all files: {len(all_data)}")
-        print(f"{'=' * 60}")
 
         # Bulk insert all data
         if use_upsert:
@@ -605,11 +560,9 @@ async def process_multiple_files(folder_path: str, use_upsert: bool = True):
 
         # Verify
         await verify_insertion(limit=10)
-        total = await get_record_count()
-        print(f"\n📊 Total records in database: {total}")
+        await get_record_count()
 
-    except Exception as e:
-        print(f"\n❌ Error processing files: {e}")
+    except Exception:
         raise
 
 
@@ -632,8 +585,6 @@ if __name__ == "__main__":
     # --------------------------------------------------------------------
 
     # Run the processor
-    print("🚀 Starting FDA Data Extractor and Database Loader")
-    print("=" * 60)
 
     # Mode 1: Process single file
     asyncio.run(process_single_file(SINGLE_FILE_PATH, use_upsert=USE_UPSERT))
@@ -641,4 +592,3 @@ if __name__ == "__main__":
     # Mode 2: Process all files in folder (recommended for multiple files)
     # asyncio.run(process_multiple_files(FOLDER_PATH, use_upsert=USE_UPSERT))
 
-    print("\n✅ Processing complete!")

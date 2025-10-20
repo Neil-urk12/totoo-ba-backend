@@ -9,7 +9,6 @@ from sqlalchemy.pool import NullPool
 
 load_dotenv()
 
-print("Initializing database...")
 
 try:
     DATABASE_URL = os.getenv("DATABASE_URL")
@@ -30,10 +29,8 @@ try:
     )
 
     # Remove the synchronous connection attempt since it causes issues in async contexts
-    print("Database engines created successfully")
 
-except Exception as e:
-    print(f"Failed to create database engines: {e}")
+except Exception:
     sync_engine = None
     async_engine = None
 
@@ -79,13 +76,9 @@ def test_connection():
         with sync_engine.connect() as conn:
             # Execute a query to test the connection and fetch 10 items from food_products
             result = conn.execute(text("SELECT * FROM food_products LIMIT 10"))
-            rows = result.fetchall()
-            print(
-                f"Database connection successful. Found {len(rows)} records in food_products table."
-            )
+            result.fetchall()
         return True
-    except Exception as e:
-        print(f"Database connection failed: {e}")
+    except Exception:
         return False
 
 
@@ -95,17 +88,13 @@ async def test_connection_async():
     Tests both raw SQL and ORM queries.
     """
     if async_engine is None or async_session is None:
-        print("❌ Database connection not available - engine or session is None")
         return False
 
     try:
         # Test raw SQL query
         async with async_engine.begin() as conn:
             result = await conn.execute(text("SELECT * FROM food_products LIMIT 10"))
-            rows = result.fetchall()
-            print(
-                f"✅ Raw SQL query successful. Found {len(rows)} records in food_products table."
-            )
+            result.fetchall()
 
         # Test ORM query
         from sqlalchemy import select
@@ -115,18 +104,13 @@ async def test_connection_async():
         async with async_session() as session:
             query = select(FoodProducts).limit(10)
             result = await session.execute(query)
-            products = result.scalars().all()
-            print(
-                f"✅ ORM query successful. Found {len(products)} food products using SQLAlchemy ORM."
-            )
+            result.scalars().all()
 
         return True
-    except Exception as e:
-        print(f"❌ Database connection failed: {e}")
+    except Exception:
         return False
 
 
-print("Database initialization complete.")
 
 # if __name__ == "__main__":
 #     test_connection()

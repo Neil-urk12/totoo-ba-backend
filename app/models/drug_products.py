@@ -1,8 +1,8 @@
 from datetime import date
 
 from sqlalchemy import Date, String
-from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 

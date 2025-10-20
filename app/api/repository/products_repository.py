@@ -3,7 +3,7 @@ Products repository for FDA verification and product-related database operations
 Handles searches across multiple FDA database tables.
 """
 
-from typing import Any, Union
+from typing import Any
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,12 +21,12 @@ from app.models import (
 from .database_repository import MultiTableRepository
 
 # Type aliases for better type safety
-ProductModel = Union[DrugProducts, FoodProducts]
-EstablishmentModel = Union[
-    DrugIndustry, FoodIndustry, MedicalDeviceIndustry, CosmeticIndustry
-]
+ProductModel = DrugProducts | FoodProducts
+EstablishmentModel = (
+    DrugIndustry | FoodIndustry | MedicalDeviceIndustry | CosmeticIndustry
+)
 ApplicationModel = DrugsNewApplications
-FDAModel = Union[ProductModel, EstablishmentModel, ApplicationModel]
+FDAModel = ProductModel | EstablishmentModel | ApplicationModel
 
 
 class ProductsRepository(MultiTableRepository):
@@ -113,9 +113,7 @@ class ProductsRepository(MultiTableRepository):
         self, session: AsyncSession, criteria: dict[str, Any]
     ) -> list[DrugProducts]:
         """Search in drug products table with word-level tokenized matching."""
-        print("\n=== DEBUG: _search_drug_products called ===")
-        print(f"Criteria: {criteria}")
-        
+
         # Build separate condition groups for AND logic
         brand_conditions = []
         product_conditions = []
@@ -200,14 +198,11 @@ class ProductsRepository(MultiTableRepository):
 
         result = await session.execute(query)
         results = result.scalars().all()
-        
-        print(f"  Drug products found: {len(results)}")
+
         if results:
-            for i, prod in enumerate(results[:5]):
-                print(
-                    f"    [{i}] Brand: {prod.brand_name}, Generic: {prod.generic_name}"
-                )
-        
+            for _i, _prod in enumerate(results[:5]):
+                pass
+
         return results
 
     async def _search_drug_products_fts(
@@ -225,8 +220,6 @@ class ProductsRepository(MultiTableRepository):
         Returns:
             List of matching DrugProducts ordered by relevance
         """
-        print("\n=== DEBUG: _search_drug_products_fts called ===")
-        print(f"Criteria: {criteria}")
 
         # Build search terms from criteria
         search_terms = []
@@ -253,13 +246,11 @@ class ProductsRepository(MultiTableRepository):
             search_terms.append(criteria["manufacturer"])
 
         if not search_terms:
-            print("  No search terms provided, returning empty list")
             return []
 
         # Create search query using plainto_tsquery (handles plain text better)
         # Join terms with spaces - PostgreSQL will handle them intelligently
         search_string = " ".join(search_terms)
-        print(f"  Full-text search string: {search_string}")
 
         # Use the pre-generated search_vector column with GIN index
         # This is MUCH faster than generating tsvector on-the-fly
@@ -286,12 +277,9 @@ class ProductsRepository(MultiTableRepository):
         result = await session.execute(query)
         results = result.scalars().all()
 
-        print(f"  Drug products found (FTS): {len(results)}")
         if results:
-            for i, prod in enumerate(results[:5]):
-                print(
-                    f"    [{i}] Brand: {prod.brand_name}, Generic: {prod.generic_name}"
-                )
+            for _i, _prod in enumerate(results[:5]):
+                pass
 
         return results
 
@@ -310,8 +298,6 @@ class ProductsRepository(MultiTableRepository):
         Returns:
             List of matching FoodProducts ordered by relevance
         """
-        print("\n=== DEBUG: _search_food_products_fts called ===")
-        print(f"Criteria: {criteria}")
 
         # Build search terms from criteria
         search_terms = []
@@ -338,13 +324,11 @@ class ProductsRepository(MultiTableRepository):
             search_terms.append(criteria["manufacturer"])
 
         if not search_terms:
-            print("  No search terms provided, returning empty list")
             return []
 
         # Create search query using plainto_tsquery (handles plain text better)
         # Join terms with spaces - PostgreSQL will handle them intelligently
         search_string = " ".join(search_terms)
-        print(f"  Full-text search string: {search_string}")
 
         # Use the pre-generated search_vector column with GIN index
         # This is MUCH faster than generating tsvector on-the-fly
@@ -371,12 +355,9 @@ class ProductsRepository(MultiTableRepository):
         result = await session.execute(query)
         results = result.scalars().all()
 
-        print(f"  Food products found (FTS): {len(results)}")
         if results:
-            for i, prod in enumerate(results[:5]):
-                print(
-                    f"    [{i}] Brand: {prod.brand_name}, Product: {prod.product_name}"
-                )
+            for _i, _prod in enumerate(results[:5]):
+                pass
 
         return results
 
@@ -384,8 +365,6 @@ class ProductsRepository(MultiTableRepository):
         self, session: AsyncSession, criteria: dict[str, Any]
     ) -> list[FoodProducts]:
         """Search in food products table with word-level tokenized matching."""
-        print("\n=== DEBUG: _search_food_products called ===")
-        print(f"Criteria: {criteria}")
 
         # Build separate condition groups for AND logic
         brand_conditions = []
@@ -471,31 +450,22 @@ class ProductsRepository(MultiTableRepository):
             all_conditions.extend(other_conditions)
 
         if not all_conditions:
-            print("  No conditions generated, returning empty list")
             return []
 
-        print(f"  Brand conditions: {len(brand_conditions)}")
-        print(f"  Product conditions: {len(product_conditions)}")
-        print(f"  Other conditions: {len(other_conditions)}")
 
         # Use AND if we have brand + product, otherwise OR
         if brand_conditions and product_conditions:
             # Brand AND Product (both must match)
             query = select(FoodProducts).where(and_(*all_conditions)).limit(50)
-            print("  Using AND logic (brand + product)")
         else:
             # Fallback to OR if only one type
             query = select(FoodProducts).where(or_(*all_conditions)).limit(50)
-            print("  Using OR logic (single criteria type)")
 
         result = await session.execute(query)
         results = result.scalars().all()
-        print(f"  Food products found: {len(results)}")
         if results:
-            for i, prod in enumerate(results[:5]):
-                print(
-                    f"    [{i}] Brand: {prod.brand_name}, Product: {prod.product_name}"
-                )
+            for _i, _prod in enumerate(results[:5]):
+                pass
 
         return results
 
@@ -710,7 +680,7 @@ class ProductsRepository(MultiTableRepository):
 
         # Flatten results
         matches = []
-        for table_name, results in all_results.items():
+        for _table_name, results in all_results.items():
             matches.extend(results)
 
         return matches
@@ -786,7 +756,7 @@ class ProductsRepository(MultiTableRepository):
 
         # Flatten results - no scoring or sorting (that's service layer responsibility)
         matches = []
-        for table_name, results in all_results.items():
+        for _table_name, results in all_results.items():
             matches.extend(results)
 
         return matches
