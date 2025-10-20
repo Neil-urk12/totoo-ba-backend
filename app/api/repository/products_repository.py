@@ -75,8 +75,10 @@ class ProductsRepository(MultiTableRepository):
             self.session, search_criteria
         )
 
-        # Search drug products
-        results["drug_products"] = await self._search_drug_products(
+        # Search drug products using full-text search (FTS)
+        # NOTE: This uses the search_vector tsvector column with GIN index
+        # To use the old ILIKE-based search, change to: _search_drug_products
+        results["drug_products"] = await self._search_drug_products_fts(
             self.session, search_criteria
         )
 
@@ -111,6 +113,9 @@ class ProductsRepository(MultiTableRepository):
         self, session: AsyncSession, criteria: dict[str, Any]
     ) -> list[DrugProducts]:
         """Search in drug products table with word-level tokenized matching."""
+        print("\n=== DEBUG: _search_drug_products called ===")
+        print(f"Criteria: {criteria}")
+        
         # Build separate condition groups for AND logic
         brand_conditions = []
         product_conditions = []
@@ -194,7 +199,101 @@ class ProductsRepository(MultiTableRepository):
             query = select(DrugProducts).where(or_(*all_conditions)).limit(50)
 
         result = await session.execute(query)
-        return result.scalars().all()
+        results = result.scalars().all()
+        
+        print(f"  Drug products found: {len(results)}")
+        if results:
+            for i, prod in enumerate(results[:5]):
+                print(
+                    f"    [{i}] Brand: {prod.brand_name}, Generic: {prod.generic_name}"
+                )
+        
+        return results
+
+    async def _search_drug_products_fts(
+        self, session: AsyncSession, criteria: dict[str, Any]
+    ) -> list[DrugProducts]:
+        """Search in drug products table using full-text search with tsvector.
+
+        This method uses PostgreSQL's full-text search capabilities with the
+        pre-generated search_vector column and GIN index for optimal performance.
+
+        Args:
+            session: AsyncSession for database operations
+            criteria: Search criteria dictionary
+
+        Returns:
+            List of matching DrugProducts ordered by relevance
+        """
+        print("\n=== DEBUG: _search_drug_products_fts called ===")
+        print(f"Criteria: {criteria}")
+
+        # Build search terms from criteria
+        search_terms = []
+
+        # Collect all searchable terms
+        if criteria.get("registration_number"):
+            search_terms.append(criteria["registration_number"])
+
+        if criteria.get("brand_name"):
+            search_terms.append(criteria["brand_name"])
+
+        if criteria.get("generic_name"):
+            search_terms.append(criteria["generic_name"])
+
+        if criteria.get("product_description"):
+            # Split product description into words for better matching
+            words = criteria["product_description"].strip().split()
+            search_terms.extend([word for word in words if len(word) >= 3])
+
+        if criteria.get("company_name"):
+            search_terms.append(criteria["company_name"])
+
+        if criteria.get("manufacturer"):
+            search_terms.append(criteria["manufacturer"])
+
+        if not search_terms:
+            print("  No search terms provided, returning empty list")
+            return []
+
+        # Create search query using plainto_tsquery (handles plain text better)
+        # Join terms with spaces - PostgreSQL will handle them intelligently
+        search_string = " ".join(search_terms)
+        print(f"  Full-text search string: {search_string}")
+
+        # Use the pre-generated search_vector column with GIN index
+        # This is MUCH faster than generating tsvector on-the-fly
+        # The @@ operator checks if tsvector matches tsquery
+
+        query = (
+            select(DrugProducts)
+            .where(
+                # Use the indexed search_vector column directly
+                DrugProducts.search_vector.op("@@")(
+                    func.plainto_tsquery("english", search_string)
+                )
+            )
+            # Order by relevance using ts_rank with the indexed column
+            .order_by(
+                func.ts_rank(
+                    DrugProducts.search_vector,
+                    func.plainto_tsquery("english", search_string),
+                ).desc()
+            )
+            .limit(50)
+        )
+
+        result = await session.execute(query)
+        results = result.scalars().all()
+
+        print(f"  Drug products found (FTS): {len(results)}")
+        if results:
+            for i, prod in enumerate(results[:5]):
+                print(
+                    f"    [{i}] Brand: {prod.brand_name}, Generic: {prod.generic_name}"
+                )
+
+        return results
 
     async def _search_food_products_fts(
         self, session: AsyncSession, criteria: dict[str, Any]
@@ -526,7 +625,7 @@ class ProductsRepository(MultiTableRepository):
 
         if criteria.get("company_name"):
             conditions.append(
-                DrugsNewApplications.applicant.ilike(f"%{criteria['company_name']}%")
+                DrugsNewApplications.applicant_company.ilike(f"%{criteria['company_name']}%")
             )
 
         if not conditions:
@@ -769,7 +868,7 @@ class ProductsRepository(MultiTableRepository):
                 {
                     "document_tracking_number": model_instance.document_tracking_number,
                     "brand_name": model_instance.brand_name,
-                    "applicant": model_instance.applicant,
+                    "applicant_company": model_instance.applicant_company,
                     "application_type": model_instance.application_type,
                     "type": "drug_application",
                 }

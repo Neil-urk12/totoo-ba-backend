@@ -71,7 +71,7 @@ class ProductSearchResult:
                 {
                     "document_tracking_number": self.model_instance.document_tracking_number,
                     "brand_name": self.model_instance.brand_name,
-                    "applicant": self.model_instance.applicant,
+                    "applicant_company": self.model_instance.applicant_company,
                     "application_type": self.model_instance.application_type,
                 }
             )
@@ -251,7 +251,7 @@ class ProductVerificationService:
 
         # Company/establishment name match
         if search_info.get("company_name"):
-            company_fields = ["company_name", "applicant", "name_of_establishment"]
+            company_fields = ["company_name", "applicant_company", "name_of_establishment"]
             for field in company_fields:
                 if model_dict.get(field):
                     if search_info["company_name"].lower() in model_dict[field].lower():
@@ -390,7 +390,7 @@ class ProductVerificationService:
             return {
                 "document_tracking_number": model_instance.document_tracking_number,
                 "brand_name": model_instance.brand_name,
-                "applicant": model_instance.applicant,
+                "applicant_company": model_instance.applicant_company,
                 "application_type": model_instance.application_type,
             }
 
