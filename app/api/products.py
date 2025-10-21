@@ -720,7 +720,7 @@ async def new_verify_product_image(
     """
     from app.services.ocr_service import get_ocr_service
 
-    logger.info(f"Hybrid OCR verification request: filename={image.filename}, type={image.content_type}")
+    logger.info("Hybrid OCR verification request received")
     ocr_service = get_ocr_service()
 
     # Validate image file
@@ -764,7 +764,7 @@ async def new_verify_product_image(
         logger.info(
             f"OCR extraction complete: layers_used={processing_metadata.layers_used}, "
             f"total_time={processing_metadata.total_time:.2f}s, "
-            f"paddle_confidence={processing_metadata.paddle_confidence:.2f}"
+            f"groq_vision_confidence={processing_metadata.groq_vision_confidence:.2f}"
         )
 
         # Convert to search dict
@@ -830,12 +830,12 @@ async def new_verify_product_image(
 
         # Build processing metadata for response
         metadata_dict = {
-            "paddle_ocr_time_ms": round(processing_metadata.paddle_time * 1000, 2),
+            "groq_vision_time_ms": round(processing_metadata.groq_vision_time * 1000, 2),
             "groq_time_ms": round(processing_metadata.groq_time * 1000, 2),
             "gemini_time_ms": round(processing_metadata.gemini_time * 1000, 2),
             "total_time_ms": round(processing_metadata.total_time * 1000, 2),
             "layers_used": processing_metadata.layers_used,
-            "paddle_confidence": round(processing_metadata.paddle_confidence, 2),
+            "groq_vision_confidence": round(processing_metadata.groq_vision_confidence, 2),
             "gemini_used": processing_metadata.gemini_used,
         }
 

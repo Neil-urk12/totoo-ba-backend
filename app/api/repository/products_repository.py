@@ -213,6 +213,7 @@ class ProductsRepository(MultiTableRepository):
 
         This method uses PostgreSQL's full-text search capabilities with the
         pre-generated search_vector column and GIN index for optimal performance.
+        Falls back to trigram similarity matching for OCR typos.
 
         Args:
             session: AsyncSession for database operations
@@ -226,51 +227,72 @@ class ProductsRepository(MultiTableRepository):
         # Build search terms from criteria
         search_terms = []
 
+        # Helper function to clean search terms (remove special characters that confuse tsquery)
+        def clean_term(term: str) -> str:
+            """Remove special characters that have meaning in tsquery"""
+            # Replace & and other tsquery operators with spaces
+            return term.replace('&', ' ').replace('|', ' ').replace('!', ' ').replace('(', ' ').replace(')', ' ')
+
         # Collect all searchable terms
         if criteria.get("registration_number"):
-            search_terms.append(criteria["registration_number"])
+            search_terms.append(clean_term(criteria["registration_number"]))
 
         if criteria.get("brand_name"):
-            search_terms.append(criteria["brand_name"])
+            search_terms.append(clean_term(criteria["brand_name"]))
 
+        # For generic_name and product_description, only add individual words (not the full string)
+        # to avoid duplication and improve matching
         if criteria.get("generic_name"):
-            search_terms.append(criteria["generic_name"])
+            words = clean_term(criteria["generic_name"]).strip().split()
+            search_terms.extend([word for word in words if len(word) >= 3])
 
         if criteria.get("product_description"):
             # Split product description into words for better matching
-            words = criteria["product_description"].strip().split()
+            words = clean_term(criteria["product_description"]).strip().split()
             search_terms.extend([word for word in words if len(word) >= 3])
 
         if criteria.get("company_name"):
-            search_terms.append(criteria["company_name"])
+            search_terms.append(clean_term(criteria["company_name"]))
 
         if criteria.get("manufacturer"):
-            search_terms.append(criteria["manufacturer"])
+            search_terms.append(clean_term(criteria["manufacturer"]))
 
         if not search_terms:
             return []
 
-        # Create search query using plainto_tsquery (handles plain text better)
-        # Join terms with spaces - PostgreSQL will handle them intelligently
-        search_string = " ".join(search_terms)
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_terms = []
+        for term in search_terms:
+            term_lower = term.lower()
+            if term_lower not in seen and term.strip():
+                seen.add(term_lower)
+                unique_terms.append(term)
+
+        # Create search query using OR logic (at least one term must match)
+        # Use websearch_to_tsquery which allows 'or' syntax for better partial matching
+        # Join terms with ' OR ' so PostgreSQL matches records with ANY of these terms
+        search_string = " OR ".join(unique_terms)
 
         # Use the pre-generated search_vector column with GIN index
         # This is MUCH faster than generating tsvector on-the-fly
         # The @@ operator checks if tsvector matches tsquery
+        # Using websearch_to_tsquery allows OR logic for flexible matching
 
         query = (
             select(DrugProducts)
             .where(
                 # Use the indexed search_vector column directly
                 DrugProducts.search_vector.op("@@")(
-                    func.plainto_tsquery("english", search_string)
+                    func.websearch_to_tsquery("english", search_string)
                 )
             )
             # Order by relevance using ts_rank with the indexed column
+            # Records matching more terms will rank higher
             .order_by(
                 func.ts_rank(
                     DrugProducts.search_vector,
-                    func.plainto_tsquery("english", search_string),
+                    func.websearch_to_tsquery("english", search_string),
                 ).desc()
             )
             .limit(50)
@@ -282,6 +304,52 @@ class ProductsRepository(MultiTableRepository):
 
         logger.info(f"Repository: drug_products FTS returned {len(results)} results")
 
+        # Fuzzy matching fallback for brand names (handles OCR typos like "Neozept" vs "Neozep")
+        # Always run when brand_name is provided to catch typos even if FTS found other matches
+        if criteria.get("brand_name"):
+            brand_name = criteria["brand_name"]
+
+            # Check if any FTS result actually matched the brand name closely
+            brand_matched = any(
+                result.brand_name and (
+                    brand_name.lower() in result.brand_name.lower() or
+                    result.brand_name.lower() in brand_name.lower()
+                )
+                for result in results[:10]  # Check top 10 FTS results
+            )
+
+            # Run fuzzy search if brand wasn't matched or we have few results
+            if not brand_matched or len(results) < 10:
+                logger.debug(f"Applying fuzzy brand search for: {brand_name} (brand_matched={brand_matched})")
+
+                # Use PostgreSQL trigram similarity (pg_trgm extension)
+                # similarity() returns 0-1 score (1 = exact match, 0 = no similarity)
+                # Threshold of 0.3 catches typos while filtering noise
+                fuzzy_query = (
+                    select(DrugProducts)
+                    .where(
+                        func.similarity(DrugProducts.brand_name, brand_name) > 0.3
+                    )
+                    .order_by(
+                        func.similarity(DrugProducts.brand_name, brand_name).desc()
+                    )
+                    .limit(20)
+                )
+
+                fuzzy_result = await session.execute(fuzzy_query)
+                fuzzy_matches = fuzzy_result.scalars().all()
+
+                # Merge results, avoiding duplicates
+                existing_ids = {r.registration_number for r in results}
+                for match in fuzzy_matches:
+                    if match.registration_number not in existing_ids:
+                        results.append(match)
+                        existing_ids.add(match.registration_number)
+
+                logger.info(f"Repository: Added {len(fuzzy_matches)} fuzzy matches, total: {len(results)}")
+            else:
+                logger.debug("Skipping fuzzy search - brand already matched in FTS results")
+
         return results
 
     async def _search_food_products_fts(
@@ -291,6 +359,7 @@ class ProductsRepository(MultiTableRepository):
 
         This method uses PostgreSQL's full-text search capabilities with the
         pre-generated search_vector column and GIN index for optimal performance.
+        Falls back to trigram similarity matching for OCR typos.
 
         Args:
             session: AsyncSession for database operations
@@ -304,51 +373,72 @@ class ProductsRepository(MultiTableRepository):
         # Build search terms from criteria
         search_terms = []
 
+        # Helper function to clean search terms (remove special characters that confuse tsquery)
+        def clean_term(term: str) -> str:
+            """Remove special characters that have meaning in tsquery"""
+            # Replace & and other tsquery operators with spaces
+            return term.replace('&', ' ').replace('|', ' ').replace('!', ' ').replace('(', ' ').replace(')', ' ')
+
         # Collect all searchable terms
         if criteria.get("registration_number"):
-            search_terms.append(criteria["registration_number"])
+            search_terms.append(clean_term(criteria["registration_number"]))
 
         if criteria.get("brand_name"):
-            search_terms.append(criteria["brand_name"])
+            search_terms.append(clean_term(criteria["brand_name"]))
 
+        # For product_name and product_description, only add individual words (not the full string)
+        # to avoid duplication and improve matching
         if criteria.get("product_name"):
-            search_terms.append(criteria["product_name"])
+            words = clean_term(criteria["product_name"]).strip().split()
+            search_terms.extend([word for word in words if len(word) >= 3])
 
         if criteria.get("product_description"):
             # Split product description into words for better matching
-            words = criteria["product_description"].strip().split()
+            words = clean_term(criteria["product_description"]).strip().split()
             search_terms.extend([word for word in words if len(word) >= 3])
 
         if criteria.get("company_name"):
-            search_terms.append(criteria["company_name"])
+            search_terms.append(clean_term(criteria["company_name"]))
 
         if criteria.get("manufacturer"):
-            search_terms.append(criteria["manufacturer"])
+            search_terms.append(clean_term(criteria["manufacturer"]))
 
         if not search_terms:
             return []
 
-        # Create search query using plainto_tsquery (handles plain text better)
-        # Join terms with spaces - PostgreSQL will handle them intelligently
-        search_string = " ".join(search_terms)
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_terms = []
+        for term in search_terms:
+            term_lower = term.lower()
+            if term_lower not in seen and term.strip():
+                seen.add(term_lower)
+                unique_terms.append(term)
+
+        # Create search query using OR logic (at least one term must match)
+        # Use websearch_to_tsquery which allows 'or' syntax for better partial matching
+        # Join terms with ' OR ' so PostgreSQL matches records with ANY of these terms
+        search_string = " OR ".join(unique_terms)
 
         # Use the pre-generated search_vector column with GIN index
         # This is MUCH faster than generating tsvector on-the-fly
         # The @@ operator checks if tsvector matches tsquery
+        # Using websearch_to_tsquery allows OR logic for flexible matching
 
         query = (
             select(FoodProducts)
             .where(
                 # Use the indexed search_vector column directly
                 FoodProducts.search_vector.op("@@")(
-                    func.plainto_tsquery("english", search_string)
+                    func.websearch_to_tsquery("english", search_string)
                 )
             )
             # Order by relevance using ts_rank with the indexed column
+            # Records matching more terms will rank higher
             .order_by(
                 func.ts_rank(
                     FoodProducts.search_vector,
-                    func.plainto_tsquery("english", search_string),
+                    func.websearch_to_tsquery("english", search_string),
                 ).desc()
             )
             .limit(50)
@@ -359,6 +449,50 @@ class ProductsRepository(MultiTableRepository):
         results = result.scalars().all()
 
         logger.info(f"Repository: food_products FTS returned {len(results)} results")
+
+        # Fuzzy matching fallback for brand names (handles OCR typos)
+        # Always run when brand_name is provided to catch typos even if FTS found other matches
+        if criteria.get("brand_name"):
+            brand_name = criteria["brand_name"]
+
+            # Check if any FTS result actually matched the brand name closely
+            brand_matched = any(
+                result.brand_name and (
+                    brand_name.lower() in result.brand_name.lower() or
+                    result.brand_name.lower() in brand_name.lower()
+                )
+                for result in results[:10]  # Check top 10 FTS results
+            )
+
+            # Run fuzzy search if brand wasn't matched or we have few results
+            if not brand_matched or len(results) < 10:
+                logger.debug(f"Applying fuzzy brand search for: {brand_name} (brand_matched={brand_matched})")
+
+                # Use PostgreSQL trigram similarity (pg_trgm extension)
+                fuzzy_query = (
+                    select(FoodProducts)
+                    .where(
+                        func.similarity(FoodProducts.brand_name, brand_name) > 0.3
+                    )
+                    .order_by(
+                        func.similarity(FoodProducts.brand_name, brand_name).desc()
+                    )
+                    .limit(20)
+                )
+
+                fuzzy_result = await session.execute(fuzzy_query)
+                fuzzy_matches = fuzzy_result.scalars().all()
+
+                # Merge results, avoiding duplicates
+                existing_ids = {r.registration_number for r in results}
+                for match in fuzzy_matches:
+                    if match.registration_number not in existing_ids:
+                        results.append(match)
+                        existing_ids.add(match.registration_number)
+
+                logger.info(f"Repository: Added {len(fuzzy_matches)} fuzzy matches, total: {len(results)}")
+            else:
+                logger.debug("Skipping fuzzy search - brand already matched in FTS results")
 
         return results
 

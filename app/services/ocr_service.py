@@ -1,5 +1,5 @@
 """
-Hybrid OCR Service with PaddleOCR + Groq + Gemini Fallback
+Hybrid OCR Service with Groq Vision + Groq LLM + Gemini Fallback
 Implements a three-layer approach for efficient and accurate text extraction from product images.
 """
 
@@ -9,11 +9,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-import cv2
-import numpy as np
 from groq import Groq
 from loguru import logger
-from PIL import Image
 
 # Initialize services
 # Using Tesseract OCR for CPU compatibility
@@ -51,7 +48,7 @@ _gemini_cache: dict[str, dict] = {}
 
 @dataclass
 class OCRResult:
-    """Result from PaddleOCR extraction"""
+    """Result from OCR extraction"""
 
     text: str
     bbox: list[list[float]]  # Bounding box coordinates
@@ -87,12 +84,12 @@ class ExtractedData:
 class ProcessingMetadata:
     """Metadata about the processing pipeline"""
 
-    paddle_time: float = 0.0
+    groq_vision_time: float = 0.0
     groq_time: float = 0.0
     gemini_time: float = 0.0
     total_time: float = 0.0
     layers_used: list[str] = None
-    paddle_confidence: float = 0.0
+    groq_vision_confidence: float = 0.0
     gemini_used: bool = False
 
     def __post_init__(self):
@@ -102,125 +99,162 @@ class ProcessingMetadata:
 
 class HybridOCRService:
     """
-    Hybrid OCR service implementing PaddleOCR + Groq + Gemini fallback strategy.
+    Hybrid OCR service implementing Groq Vision + Groq LLM + Gemini fallback strategy.
+    Uses a three-layer approach:
+    1. Groq Llama 4 Scout Vision for image OCR
+    2. Groq Llama 4 Scout for structured field extraction
+    3. Gemini 2.5 Flash as fallback for low-confidence results
     """
 
     def __init__(self):
         """Initialize the hybrid OCR service"""
-        self.ocr_reader = None
-        self._ocr_initialized = False
+        pass
 
-    def _ensure_ocr_initialized(self):
-        """Lazy initialization of Tesseract OCR"""
-        if not self._ocr_initialized:
-            try:
-                import pytesseract
 
-                # Test if tesseract is available
-                pytesseract.get_tesseract_version()
 
-                self.ocr_reader = pytesseract
-                self.ocr_type = 'tesseract'
-                self._ocr_initialized = True
-            except Exception:
-                self.ocr_reader = None
-                self.ocr_type = None
-                self._ocr_initialized = True
-
-    def _preprocess_image(self, image_bytes: bytes) -> np.ndarray:
+    async def _extract_with_groq_vision(self, image_bytes: bytes, mime_type: str) -> list[OCRResult]:
         """
-        Preprocess image for optimal OCR performance.
-
-        Args:
-            image_bytes: Raw image bytes
-
-        Returns:
-            Preprocessed image as numpy array
-        """
-        # Convert bytes to numpy array
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-        # Convert to grayscale for better OCR
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-        # Apply adaptive thresholding to handle varying lighting
-        processed = cv2.adaptiveThreshold(
-            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
-        )
-
-        # Denoise
-        return cv2.fastNlMeansDenoising(processed, None, 10, 7, 21)
-
-
-    def _extract_with_tesseract(self, image_bytes: bytes) -> list[OCRResult]:
-        """
-        Extract text using Tesseract OCR.
+        Extract text using Groq Llama 4 Scout vision model for OCR.
 
         Args:
             image_bytes: Image bytes to process
+            mime_type: Image MIME type
 
         Returns:
-            List of OCR results with bounding boxes and confidence
+            List of OCR results with simulated bounding boxes and confidence
         """
-        logger.debug("Starting Tesseract OCR extraction")
-        # Ensure OCR is initialized (lazy loading)
-        self._ensure_ocr_initialized()
+        logger.debug("Starting Groq Llama 4 Scout vision OCR extraction")
 
-        if not self.ocr_reader:
-            logger.error("Tesseract OCR is not available on this system")
-            raise RuntimeError("Tesseract OCR is not available")
+        if not GROQ_AVAILABLE or not groq_client:
+            logger.error("Groq API key not configured")
+            raise RuntimeError("Groq API is not available")
 
-        # Convert bytes to image
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        # Convert image to base64 for Groq
+        import base64
+        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        image_url = f"data:{mime_type};base64,{image_base64}"
 
-        # Convert to PIL Image for Tesseract
-        img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        prompt = """You are an expert OCR system. Extract ALL visible text from this product image.
 
-        # Get detailed data from Tesseract
-        data = self.ocr_reader.image_to_data(img_pil, output_type='dict')
+For each piece of text you find, provide:
+1. The exact text as you see it
+2. A confidence score (0.0-1.0) based on text clarity
+3. Approximate position (top, middle, bottom of image)
 
-        # Parse Tesseract results
-        ocr_results = []
-        n_boxes = len(data['text'])
-        for i in range(n_boxes):
-            text = data['text'][i].strip()
-            if text:  # Skip empty text
-                # Tesseract confidence is 0-100, convert to 0-1
-                confidence = float(data['conf'][i]) / 100.0
+Return a JSON object with an "items" array containing the extracted text:
+{
+  "items": [
+    {
+      "text": "exact text found",
+      "confidence": 0.95,
+      "position": "top|middle|bottom"
+    }
+  ]
+}
 
-                # Get bounding box coordinates
-                x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
-                bbox = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
+Focus on extracting:
+- Registration numbers (BR-, DR-, FR-, etc.)
+- Brand names
+- Product descriptions
+- Manufacturer names
+- Dates
+- Batch numbers
+- Net weights/volumes
+- Any other visible text
 
-                is_low_confidence = confidence < 0.85
-                ocr_results.append(
-                    OCRResult(
-                        text=text,
-                        bbox=bbox,
-                        confidence=confidence,
-                        is_low_confidence=is_low_confidence,
-                    )
-                )
+Be thorough and extract even small or partially visible text."""
 
-        if ocr_results:
-            avg_confidence = sum(r.confidence for r in ocr_results) / len(ocr_results)
-            logger.info(
-                f"Tesseract OCR extracted {len(ocr_results)} text blocks, "
-                f"avg_confidence={avg_confidence:.2f}"
+        try:
+            # Temporarily reduce logging level for groq module to prevent image data logging
+            import logging
+            groq_logger = logging.getLogger("groq")
+            original_level = groq_logger.level
+            # If the current level is DEBUG (10) or lower, temporarily set to WARNING (30)
+            # to prevent request details with image data from being logged
+            if original_level <= logging.DEBUG:
+                groq_logger.setLevel(logging.WARNING)
+
+            completion = groq_client.chat.completions.create(
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": image_url}}
+                        ]
+                    }
+                ],
+                temperature=0.1,
+                max_tokens=1000,
+                response_format={"type": "json_object"}
             )
-        else:
-            logger.warning("Tesseract OCR found no text in image")
 
-        return ocr_results
+            # Restore original logging level after the API call
+            groq_logger.setLevel(original_level)
+
+            # Parse JSON response
+            import json
+            result_text = completion.choices[0].message.content
+            response_data = json.loads(result_text)
+
+            # Extract items array from response
+            extracted_items = response_data.get("items", [])
+
+            # Convert to OCRResult format
+            ocr_results = []
+            for _i, item in enumerate(extracted_items):
+                if isinstance(item, dict):
+                    text = item.get("text", "").strip()
+                    if text:
+                        confidence = float(item.get("confidence", 0.8))
+                        position = item.get("position", "middle")
+
+                        # Create simulated bounding box based on position
+                        if position == "top":
+                            bbox = [[0, 0], [100, 0], [100, 30], [0, 30]]
+                        elif position == "bottom":
+                            bbox = [[0, 170], [100, 170], [100, 200], [0, 200]]
+                        else:  # middle
+                            bbox = [[0, 85], [100, 85], [100, 115], [0, 115]]
+
+                        is_low_confidence = confidence < 0.85
+                        ocr_results.append(
+                            OCRResult(
+                                text=text,
+                                bbox=bbox,
+                                confidence=confidence,
+                                is_low_confidence=is_low_confidence,
+                            )
+                        )
+
+            if ocr_results:
+                avg_confidence = sum(r.confidence for r in ocr_results) / len(ocr_results)
+                logger.info(
+                    f"Groq vision OCR extracted {len(ocr_results)} text blocks, "
+                    f"avg_confidence={avg_confidence:.2f}"
+                )
+            else:
+                logger.warning("Groq vision OCR found no text in image")
+
+            return ocr_results
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Groq vision OCR returned invalid JSON: {str(e)}")
+            raise RuntimeError(f"Groq vision OCR returned invalid JSON: {e}") from e
+        except KeyError as e:
+            logger.error(f"Groq vision OCR response missing expected field: {str(e)}")
+            raise RuntimeError(f"Groq vision OCR response missing expected field: {e}") from e
+        except Exception as e:
+            logger.error(f"Groq vision OCR extraction failed: {str(e)}")
+            raise RuntimeError(f"Groq vision OCR extraction failed: {e}") from e
 
     def _analyze_confidence(self, ocr_results: list[OCRResult]) -> ConfidenceReport:
         """
         Analyze confidence scores and determine if Gemini fallback is needed.
 
         Args:
-            ocr_results: Results from PaddleOCR
+            ocr_results: Results from OCR extraction
 
         Returns:
             Confidence report with analysis
@@ -280,11 +314,11 @@ class HybridOCRService:
         self, raw_text: str, confidence_score: float
     ) -> ExtractedData:
         """
-        Use Groq Llama 3.1 8B-instant for structured field extraction.
+        Use Groq Llama 4 Scout for structured field extraction.
 
         Args:
-            raw_text: Raw text from PaddleOCR
-            confidence_score: Overall confidence from PaddleOCR
+            raw_text: Raw text from Groq vision OCR
+            confidence_score: Overall confidence from vision OCR
 
         Returns:
             Structured extracted data
@@ -315,7 +349,7 @@ Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
 
         try:
             completion = groq_client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=500,
@@ -376,7 +410,7 @@ Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
         Args:
             image_bytes: Image bytes (potentially cropped)
             mime_type: Image MIME type
-            raw_text: Raw text from PaddleOCR for context
+            raw_text: Raw text from Groq vision OCR for context
 
         Returns:
             Structured extracted data from Gemini
@@ -395,7 +429,7 @@ Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
 
         prompt = f"""You are an expert FDA Philippines product verification assistant.
 
-The initial OCR detected this text (but with low confidence):
+The initial Groq vision OCR detected this text (but with low confidence):
 {raw_text[:500]}
 
 Analyze this product image carefully and extract ALL visible text and product information.
@@ -428,6 +462,15 @@ Return as JSON with these exact field names."""
             # Create image part
             image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
 
+            # Temporarily reduce logging level for genai module to prevent image data logging
+            import logging
+            genai_logger = logging.getLogger("google")
+            original_level = genai_logger.level
+            # If the current level is DEBUG (10) or lower, temporarily set to WARNING (30)
+            # to prevent request details with image data from being logged
+            if original_level <= logging.DEBUG:
+                genai_logger.setLevel(logging.WARNING)
+
             # Generate structured content
             response = gemini_client.models.generate_content(
                 model="gemini-2.5-flash",
@@ -438,6 +481,9 @@ Return as JSON with these exact field names."""
                     temperature=0.1,
                 ),
             )
+
+            # Restore original logging level after the API call
+            genai_logger.setLevel(original_level)
 
             result: GeminiExtractedFields = response.parsed
             extracted = ExtractedData(
@@ -516,44 +562,44 @@ Return as JSON with these exact field names."""
         Returns:
             Tuple of (extracted_data, processing_metadata)
         """
-        logger.info(f"Starting hybrid OCR pipeline (image_size={len(image_bytes)} bytes)")
+        logger.info("Starting hybrid OCR pipeline")
         metadata = ProcessingMetadata()
         start_time = time.time()
 
 
-        # Layer 1: Tesseract OCR for fast text extraction
+        # Layer 1: Groq Llama 4 Scout Vision OCR for text extraction
         ocr_start = time.time()
         try:
-            ocr_results = self._extract_with_tesseract(image_bytes)
+            ocr_results = await self._extract_with_groq_vision(image_bytes, mime_type)
             raw_text = " ".join([r.text for r in ocr_results])
             confidence_report = self._analyze_confidence(ocr_results)
 
-            metadata.paddle_time = time.time() - ocr_start
-            metadata.paddle_confidence = confidence_report.average_confidence
-            metadata.layers_used.append("Tesseract OCR")
+            metadata.groq_vision_time = time.time() - ocr_start
+            metadata.groq_vision_confidence = confidence_report.average_confidence
+            metadata.layers_used.append("Groq Llama 4 Scout Vision")
 
 
         except Exception as e:
-            # Fallback to Gemini if OCR fails completely
-            logger.warning(f"Tesseract OCR failed: {str(e)}. Will use Gemini fallback.")
+            # Fallback to Gemini if Groq vision OCR fails completely
+            logger.warning(f"Groq vision OCR failed: {str(e)}. Will use Gemini fallback.")
             raw_text = ""
             confidence_report = ConfidenceReport(
                 average_confidence=0.0,
                 critical_fields_confidence={},
                 low_confidence_regions=[],
                 needs_gemini_fallback=True,
-                reason=f"OCR failed: {e}",
+                reason=f"Groq vision OCR failed: {e}",
             )
-            metadata.paddle_time = time.time() - ocr_start
+            metadata.groq_vision_time = time.time() - ocr_start
 
-        # Layer 2: Groq for structured extraction
+        # Layer 2: Groq Llama 4 Scout for structured extraction
         groq_start = time.time()
         try:
             groq_data = await self._extract_with_groq(
                 raw_text, confidence_report.average_confidence
             )
             metadata.groq_time = time.time() - groq_start
-            metadata.layers_used.append("Groq Llama 3.1")
+            metadata.layers_used.append("Groq Llama 4 Scout")
 
         except Exception as e:
             # If Groq fails, create empty data and force Gemini

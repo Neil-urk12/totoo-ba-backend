@@ -3,6 +3,7 @@ Product verification service layer.
 Handles business logic for product verification, scoring, and ranking.
 """
 
+import difflib
 from dataclasses import dataclass
 from typing import Any
 
@@ -57,11 +58,15 @@ class ProductSearchResult:
             result.update(
                 {
                     "registration_number": self.model_instance.registration_number,
+                    "brand_name": self.model_instance.brand_name,
                     "product_name": self.model_instance.product_name,
                     "company_name": self.model_instance.company_name,
                 }
             )
-        elif isinstance(self.model_instance, (DrugIndustry, FoodIndustry, MedicalDeviceIndustry, CosmeticIndustry)):
+        elif isinstance(
+            self.model_instance,
+            (DrugIndustry, FoodIndustry, MedicalDeviceIndustry, CosmeticIndustry),
+        ):
             result.update(
                 {
                     "license_number": self.model_instance.license_number,
@@ -242,11 +247,13 @@ class ProductVerificationService:
         model_dict = self._model_to_search_dict(model_instance)
 
         # Registration number match (highest weight)
-        if search_info.get("registration_number") and model_dict.get(
-            "registration_number"
-        ) and (
-            search_info["registration_number"].lower()
-            in model_dict["registration_number"].lower()
+        if (
+            search_info.get("registration_number")
+            and model_dict.get("registration_number")
+            and (
+                search_info["registration_number"].lower()
+                in model_dict["registration_number"].lower()
+            )
         ):
             score += 0.4  # 40% weight for registration number
             matched_fields.append("registration_number")
@@ -266,7 +273,31 @@ class ProductVerificationService:
                         break
                     # Core brand substring match (e.g., "C2" in "C2 COOL & CLEAN")
                     if search_brand in field_brand or field_brand in search_brand:
-                        score += 0.4  # 40% weight for brand substring match
+                        # Use fuzzy similarity to score how close the match is
+                        # This distinguishes "Neozep" (0.93) from "NEO" (0.47) when searching for "Neozept"
+                        similarity = difflib.SequenceMatcher(
+                            None, search_brand, field_brand
+                        ).ratio()
+
+                        # Base score weighted by similarity: 0.3 to 0.45
+                        # Higher similarity = higher score
+                        base_score = 0.30 + (similarity * 0.15)
+
+                        # Bonus: Check if brand contains words from product description
+                        # This boosts "C2 COOL & CLEAN" over just "C2"
+                        if search_info.get("product_description"):
+                            prod_desc = search_info["product_description"].lower()
+                            brand_words = set(field_brand.split())
+                            desc_words = {
+                                word for word in prod_desc.split() if len(word) >= 3
+                            }
+                            common_brand_desc = brand_words & desc_words
+
+                            # If brand contains 2+ words from description, give bonus
+                            if len(common_brand_desc) >= 2:
+                                base_score += 0.05  # Additional boost
+
+                        score += base_score
                         matched_fields.append(field)
                         break
                     # Word-level brand match
@@ -279,7 +310,11 @@ class ProductVerificationService:
 
         # Company/establishment name match
         if search_info.get("company_name"):
-            company_fields = ["company_name", "applicant_company", "name_of_establishment"]
+            company_fields = [
+                "company_name",
+                "applicant_company",
+                "name_of_establishment",
+            ]
             for field in company_fields:
                 if model_dict.get(field):
                     if search_info["company_name"].lower() in model_dict[field].lower():
@@ -321,12 +356,42 @@ class ProductVerificationService:
                         overlap_ratio = len(common_words) / len(search_words)
 
                         # Award partial score based on word overlap
-                        if overlap_ratio >= 0.5:  # At least 50% of words match
+                        # Lowered threshold to 25% to handle OCR text with extra packaging info
+                        if overlap_ratio >= 0.25:  # At least 25% of words match
+                            # Scale score: 25% overlap = 6.25%, 50% = 12.5%, 100% = 25%
                             score += (
-                                0.2 * overlap_ratio
-                            )  # Up to 20% weight for partial match
+                                0.25 * overlap_ratio
+                            )  # Up to 25% weight for partial match
                             matched_fields.append(field)
                             break
+
+        # Context bonus: If this is a drug product and generic_name has good matches with product_description
+        # This helps rank "Neozep" (nasal decongestant) above "NEO" (jalapeno) when both match brand
+        if isinstance(model_instance, DrugProducts) and product_description:
+            if model_dict.get("generic_name"):
+                search_words = {
+                    word.lower()
+                    for word in product_description.strip().split()
+                    if len(word) >= 3
+                }
+                generic_words = {
+                    word.lower()
+                    for word in str(model_dict["generic_name"]).strip().split()
+                    if len(word) >= 3
+                }
+
+                # If generic name contains terms from product description, boost score
+                common_words = search_words & generic_words
+                if len(common_words) >= 2:
+                    # Significant overlap = strong context match
+                    score += 0.1
+                    logger.debug(
+                        f"Drug context bonus: +0.1 ({len(common_words)} matching terms)"
+                    )
+                elif len(common_words) == 1:
+                    # Some overlap = moderate context match
+                    score += 0.05
+                    logger.debug(f"Drug context bonus: +0.05 (1 matching term)")
 
         logger.debug(f"Score calculated: {score:.2f}, matched_fields={matched_fields}")
         return score, matched_fields
@@ -407,10 +472,14 @@ class ProductVerificationService:
         if isinstance(model_instance, FoodProducts):
             return {
                 "registration_number": model_instance.registration_number,
+                "brand_name": model_instance.brand_name,
                 "product_name": model_instance.product_name,
                 "company_name": model_instance.company_name,
             }
-        if isinstance(model_instance, (DrugIndustry, FoodIndustry, MedicalDeviceIndustry, CosmeticIndustry)):
+        if isinstance(
+            model_instance,
+            (DrugIndustry, FoodIndustry, MedicalDeviceIndustry, CosmeticIndustry),
+        ):
             return {
                 "license_number": model_instance.license_number,
                 "name_of_establishment": model_instance.name_of_establishment,
