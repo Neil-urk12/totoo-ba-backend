@@ -1,13 +1,18 @@
 # app/main.py
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
 
 from app.api.products import router as products_router
 from app.core.config import Settings, get_settings
 from app.core.database import Base, engine, test_connection_async
+from app.core.logging import setup_logging
 
 # Initialize settings
 settings = get_settings()
+
+# Configure logging with Loguru
+setup_logging(settings)
 
 # Initialize FastAPI with environment-specific config
 app = FastAPI(**settings.fastapi_kwargs)
@@ -25,22 +30,25 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     """Initialize database on startup"""
+    logger.info(f"Starting {settings.app_name} v{settings.app_version}")
+    logger.info(f"Environment: {settings.environment}")
 
     # Only try to create tables if we have a valid engine
     if engine is not None:
         try:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-        except Exception:
-            pass
+            logger.info("Database tables created/verified")
+        except Exception as e:
+            logger.error(f"Failed to create database tables: {e}")
     else:
-        pass
+        logger.warning("Database engine not initialized")
 
     # Test database connection
     if await test_connection_async():
-        pass
+        logger.success("Database connection established")
     else:
-        pass
+        logger.error("Failed to connect to database")
 
 
 app.include_router(products_router, prefix=settings.api_prefix)

@@ -5,6 +5,7 @@ Handles searches across multiple FDA database tables.
 
 from typing import Any
 
+from loguru import logger
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -220,6 +221,7 @@ class ProductsRepository(MultiTableRepository):
         Returns:
             List of matching DrugProducts ordered by relevance
         """
+        logger.debug("Repository: Searching drug_products using FTS")
 
         # Build search terms from criteria
         search_terms = []
@@ -274,12 +276,11 @@ class ProductsRepository(MultiTableRepository):
             .limit(50)
         )
 
+        logger.debug(f"Executing FTS query on drug_products: {search_string[:100]}...")
         result = await session.execute(query)
         results = result.scalars().all()
 
-        if results:
-            for _i, _prod in enumerate(results[:5]):
-                pass
+        logger.info(f"Repository: drug_products FTS returned {len(results)} results")
 
         return results
 
@@ -298,6 +299,7 @@ class ProductsRepository(MultiTableRepository):
         Returns:
             List of matching FoodProducts ordered by relevance
         """
+        logger.debug("Repository: Searching food_products using FTS")
 
         # Build search terms from criteria
         search_terms = []
@@ -352,12 +354,11 @@ class ProductsRepository(MultiTableRepository):
             .limit(50)
         )
 
+        logger.debug(f"Executing FTS query on food_products: {search_string[:100]}...")
         result = await session.execute(query)
         results = result.scalars().all()
 
-        if results:
-            for _i, _prod in enumerate(results[:5]):
-                pass
+        logger.info(f"Repository: food_products FTS returned {len(results)} results")
 
         return results
 
@@ -622,6 +623,7 @@ class ProductsRepository(MultiTableRepository):
         Returns:
             List of all matching records across relevant tables
         """
+        logger.debug(f"Repository: Optimized ID search for: {id_value[:20]}...")
         matches = []
 
         # Search products for registration_number (2 queries)
@@ -659,6 +661,11 @@ class ProductsRepository(MultiTableRepository):
             await self._search_drug_applications(
                 self.session, {"document_tracking_number": id_value}
             )
+        )
+
+        logger.info(
+            f"Repository: Optimized ID search complete - "
+            f"found {len(matches)} matches across 7 queries"
         )
 
         return matches
@@ -752,12 +759,20 @@ class ProductsRepository(MultiTableRepository):
         Returns:
             List of matching model instances (unsorted - service layer handles ranking)
         """
+        logger.debug(
+            f"Repository: Fuzzy search with {len(product_info)} criteria: "
+            f"{list(product_info.keys())}"
+        )
         all_results = await self.search_across_tables(product_info)
 
         # Flatten results - no scoring or sorting (that's service layer responsibility)
         matches = []
-        for _table_name, results in all_results.items():
+        for table_name, results in all_results.items():
+            if results:
+                logger.debug(f"Repository: {table_name} returned {len(results)} results")
             matches.extend(results)
+
+        logger.info(f"Repository: Fuzzy search complete - {len(matches)} total matches")
 
         return matches
 

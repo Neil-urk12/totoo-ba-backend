@@ -12,6 +12,7 @@ from typing import Any
 import cv2
 import numpy as np
 from groq import Groq
+from loguru import logger
 from PIL import Image
 
 # Initialize services
@@ -162,10 +163,12 @@ class HybridOCRService:
         Returns:
             List of OCR results with bounding boxes and confidence
         """
+        logger.debug("Starting Tesseract OCR extraction")
         # Ensure OCR is initialized (lazy loading)
         self._ensure_ocr_initialized()
 
         if not self.ocr_reader:
+            logger.error("Tesseract OCR is not available on this system")
             raise RuntimeError("Tesseract OCR is not available")
 
         # Convert bytes to image
@@ -200,6 +203,15 @@ class HybridOCRService:
                         is_low_confidence=is_low_confidence,
                     )
                 )
+
+        if ocr_results:
+            avg_confidence = sum(r.confidence for r in ocr_results) / len(ocr_results)
+            logger.info(
+                f"Tesseract OCR extracted {len(ocr_results)} text blocks, "
+                f"avg_confidence={avg_confidence:.2f}"
+            )
+        else:
+            logger.warning("Tesseract OCR found no text in image")
 
         return ocr_results
 
@@ -250,13 +262,19 @@ class HybridOCRService:
             needs_gemini = True
             reason = f"Too many low confidence regions: {len(low_conf_regions)}/{len(ocr_results)}"
 
-        return ConfidenceReport(
+        report = ConfidenceReport(
             average_confidence=avg_conf,
             critical_fields_confidence=critical_fields,
             low_confidence_regions=low_conf_regions,
             needs_gemini_fallback=needs_gemini,
             reason=reason,
         )
+
+        logger.info(
+            f"Confidence analysis: avg={avg_conf:.2%}, "
+            f"gemini_needed={needs_gemini}, reason={reason}"
+        )
+        return report
 
     async def _extract_with_groq(
         self, raw_text: str, confidence_score: float
@@ -271,7 +289,9 @@ class HybridOCRService:
         Returns:
             Structured extracted data
         """
+        logger.debug(f"Starting Groq extraction with {len(raw_text)} chars of text")
         if not GROQ_AVAILABLE or not groq_client:
+            logger.error("Groq API key not configured")
             raise RuntimeError("Groq API is not available")
 
         prompt = f"""You are an FDA Philippines product information extractor.
@@ -308,7 +328,7 @@ Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
             result_text = completion.choices[0].message.content
             parsed = json.loads(result_text)
 
-            return ExtractedData(
+            extracted = ExtractedData(
                 registration_number=parsed.get("registration_number"),
                 brand_name=parsed.get("brand_name"),
                 product_description=parsed.get("product_description"),
@@ -318,7 +338,16 @@ Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
                 net_weight=parsed.get("net_weight"),
             )
 
+            logger.info(
+                f"Groq extraction successful: "
+                f"reg_num={'✓' if extracted.registration_number else '✗'}, "
+                f"brand={'✓' if extracted.brand_name else '✗'}, "
+                f"product={'✓' if extracted.product_description else '✗'}"
+            )
+            return extracted
+
         except Exception as e:
+            logger.error(f"Groq extraction failed: {str(e)}")
             raise RuntimeError(f"Groq extraction failed: {e}") from e
 
     def _crop_low_confidence_regions(
@@ -352,12 +381,15 @@ Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
         Returns:
             Structured extracted data from Gemini
         """
+        logger.info("Starting Gemini fallback extraction")
         if not GEMINI_AVAILABLE or not gemini_client:
+            logger.error("Gemini API key not configured")
             raise RuntimeError("Gemini API is not available")
 
         # Check cache first
         cache_key = hashlib.md5(image_bytes).hexdigest()
         if cache_key in _gemini_cache:
+            logger.info("Gemini result found in cache")
             cached = _gemini_cache[cache_key]
             return ExtractedData(**cached)
 
@@ -429,9 +461,17 @@ Return as JSON with these exact field names."""
                 "net_weight": result.net_weight,
             }
 
+            logger.info(
+                f"Gemini extraction successful: "
+                f"reg_num={'✓' if result.registration_number else '✗'}, "
+                f"brand={'✓' if result.brand_name else '✗'}, "
+                f"product={'✓' if result.product_description else '✗'}"
+            )
+
             return extracted
 
         except Exception as e:
+            logger.error(f"Gemini extraction failed: {str(e)}")
             raise RuntimeError(f"Gemini extraction failed: {e}") from e
 
     def _merge_results(
@@ -476,6 +516,7 @@ Return as JSON with these exact field names."""
         Returns:
             Tuple of (extracted_data, processing_metadata)
         """
+        logger.info(f"Starting hybrid OCR pipeline (image_size={len(image_bytes)} bytes)")
         metadata = ProcessingMetadata()
         start_time = time.time()
 
@@ -494,6 +535,7 @@ Return as JSON with these exact field names."""
 
         except Exception as e:
             # Fallback to Gemini if OCR fails completely
+            logger.warning(f"Tesseract OCR failed: {str(e)}. Will use Gemini fallback.")
             raw_text = ""
             confidence_report = ConfidenceReport(
                 average_confidence=0.0,
@@ -513,8 +555,9 @@ Return as JSON with these exact field names."""
             metadata.groq_time = time.time() - groq_start
             metadata.layers_used.append("Groq Llama 3.1")
 
-        except Exception:
+        except Exception as e:
             # If Groq fails, create empty data and force Gemini
+            logger.warning(f"Groq extraction failed: {str(e)}. Will use Gemini fallback.")
             groq_data = ExtractedData()
             metadata.groq_time = time.time() - groq_start
             confidence_report.needs_gemini_fallback = True
@@ -523,6 +566,7 @@ Return as JSON with these exact field names."""
         # Layer 3: Gemini fallback (if needed)
         gemini_data = None
         if confidence_report.needs_gemini_fallback:
+            logger.info(f"Triggering Gemini fallback: {confidence_report.reason}")
             gemini_start = time.time()
             try:
                 gemini_data = await self._extract_with_gemini_fallback(
@@ -531,7 +575,8 @@ Return as JSON with these exact field names."""
                 metadata.gemini_time = time.time() - gemini_start
                 metadata.gemini_used = True
                 metadata.layers_used.append("Gemini 2.5 Flash")
-            except Exception:
+            except Exception as e:
+                logger.error(f"Gemini fallback also failed: {str(e)}")
                 metadata.gemini_time = time.time() - gemini_start
 
         # Merge results
@@ -539,6 +584,12 @@ Return as JSON with these exact field names."""
 
         metadata.total_time = time.time() - start_time
 
+        logger.success(
+            f"Hybrid OCR pipeline complete: "
+            f"layers={', '.join(metadata.layers_used)}, "
+            f"total_time={metadata.total_time:.2f}s, "
+            f"gemini_used={metadata.gemini_used}"
+        )
 
         return final_data, metadata
 
