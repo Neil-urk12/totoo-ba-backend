@@ -6,6 +6,8 @@ Handles business logic for product verification, scoring, and ranking.
 from dataclasses import dataclass
 from typing import Any
 
+from loguru import logger
+
 from app.api.repository.products_repository import FDAModel, ProductsRepository
 from app.models import (
     CosmeticIndustry,
@@ -129,10 +131,13 @@ class ProductVerificationService:
         Returns:
             List of search results sorted by relevance
         """
+        logger.debug(f"Searching products with criteria: {list(product_info.keys())}")
+
         # Repository handles data access only
         raw_results = await self.products_repo.fuzzy_search_by_product_info(
             product_info
         )
+        logger.info(f"Repository returned {len(raw_results)} raw results")
 
         # Service layer applies business logic
         scored_results = []
@@ -154,6 +159,16 @@ class ProductVerificationService:
         # Sort by relevance score (highest first)
         scored_results.sort(key=lambda x: x.relevance_score, reverse=True)
 
+        if scored_results:
+            top_score = scored_results[0].relevance_score
+            logger.info(
+                f"Ranked {len(scored_results)} products, "
+                f"top_score={top_score:.2f}, "
+                f"top_type={scored_results[0].product_type}"
+            )
+        else:
+            logger.info("No scored results found")
+
         return scored_results
 
     async def verify_product_by_id(self, product_id: str) -> list[ProductSearchResult]:
@@ -168,8 +183,11 @@ class ProductVerificationService:
         Returns:
             List of matching products with verification scores
         """
+        logger.debug("Service: Verifying product by ID (optimized search)")
+
         # Get raw data from repository using optimized single method (7 queries instead of 21)
         all_matches = await self.products_repo.search_by_any_id(product_id)
+        logger.info(f"Service: Found {len(all_matches)} matches for ID verification")
 
         # Apply business logic for exact vs partial matches
         results = []
@@ -191,6 +209,16 @@ class ProductVerificationService:
         # Sort by relevance (exact matches first)
         results.sort(key=lambda x: x.relevance_score, reverse=True)
 
+        if results:
+            exact_matches = [r for r in results if r.relevance_score >= 1.0]
+            logger.info(
+                f"Service: ID verification complete - "
+                f"exact_matches={len(exact_matches)}, "
+                f"total_results={len(results)}"
+            )
+        else:
+            logger.info("Service: No matches found for product ID")
+
         return results
 
     def _calculate_relevance_score(
@@ -206,6 +234,7 @@ class ProductVerificationService:
         Returns:
             Tuple of (relevance_score, matched_fields)
         """
+        logger.debug(f"Calculating relevance score for {type(model_instance).__name__}")
         score = 0.0
         matched_fields = []
 
@@ -299,6 +328,7 @@ class ProductVerificationService:
                             matched_fields.append(field)
                             break
 
+        logger.debug(f"Score calculated: {score:.2f}, matched_fields={matched_fields}")
         return score, matched_fields
 
     def _calculate_id_match_score(

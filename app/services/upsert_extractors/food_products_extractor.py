@@ -1,6 +1,5 @@
 # extractor_to_db_food_products.py
 import asyncio
-import logging
 import os
 import re
 import traceback
@@ -12,6 +11,7 @@ from typing import Any
 import pandas as pd
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from loguru import logger
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -23,25 +23,6 @@ from app.core.database import Base, async_session, engine
 from app.models.food_products import FoodProducts
 
 load_dotenv()
-
-
-# ==============================================================================
-# LOGGING CONFIGURATION
-# ==============================================================================
-def setup_logging(log_file: str = "food_products_extractor.log"):
-    """Configure logging with both file and console output"""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
-            logging.StreamHandler(),
-        ],
-    )
-    return logging.getLogger(__name__)
-
-
-logger = setup_logging()
 
 
 # ==============================================================================

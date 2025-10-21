@@ -2,6 +2,7 @@ import json
 import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from loguru import logger
 from pydantic import BaseModel, Field
 
 # Import dependencies and repository
@@ -122,9 +123,11 @@ async def verify_product(
     from app.utils.helpers import normalize_string
 
     product_id = product_id.strip()
+    logger.info(f"Product verification request for ID: {product_id[:20]}...")
 
     # Basic validation
     if not product_id or len(product_id) < 3:
+        logger.warning(f"Invalid product ID provided: length={len(product_id)}")
         return ProductVerificationResponse(
             product_id=product_id,
             is_verified=False,
@@ -134,10 +137,12 @@ async def verify_product(
 
     try:
         # Use service layer for business logic
+        logger.debug(f"Searching for product ID: {product_id}")
         search_results = await verification_service.verify_product_by_id(product_id)
 
         # Convert to legacy format for API compatibility
         all_matches = [result.to_dict() for result in search_results]
+        logger.debug(f"Found {len(all_matches)} potential matches for product ID")
 
         is_verified = False
         message = f"Product ID '{product_id}' not found in FDA database"
@@ -192,6 +197,10 @@ async def verify_product(
             is_verified = True
             best_match = exact_matches[0]
             product_info = best_match["product"]
+            logger.info(
+                f"Product verified: ID={product_id}, type={product_info.get('type')}, "
+                f"matched_field={best_match['matched_field']}"
+            )
 
             # Create detailed message based on product type
             product_type = product_info.get("type", "unknown")
@@ -218,6 +227,10 @@ async def verify_product(
         elif partial_matches:
             # High relevance but not exact match
             best_partial = partial_matches[0]
+            logger.warning(
+                f"Partial match found for ID={product_id}, "
+                f"relevance={best_partial['relevance_score']:.0%}, count={len(partial_matches)}"
+            )
             message = f"⚠️ Possible match found (relevance: {best_partial['relevance_score']:.0%}). Please verify details manually."
             details.update(
                 {
@@ -229,6 +242,7 @@ async def verify_product(
 
         else:
             # No good matches found
+            logger.info(f"Product ID not found: {product_id}")
             message = f"❌ Product ID '{product_id}' not found in FDA database"
             details.update(
                 {
@@ -249,9 +263,11 @@ async def verify_product(
             details=details,
         )
 
-    except Exception:
+    except Exception as e:
         # Handle database errors gracefully
         # Log the detailed error server-side for debugging
+        logger.error(f"Database error during verification for ID={product_id}: {str(e)}")
+        logger.exception("Full traceback:")
         return ProductVerificationResponse(
             product_id=product_id,
             is_verified=False,
@@ -283,7 +299,10 @@ async def verify_product_image(
 
     No OCR preprocessing required - Gemini handles vision understanding directly.
     """
+    logger.info(f"Image verification request: filename={image.filename}, type={image.content_type}")
+
     if not GEMINI_AVAILABLE or not client:
+        logger.error("Gemini AI service unavailable")
         raise HTTPException(
             status_code=500,
             detail="AI verification service temporarily unavailable. Please try again later.",
@@ -291,6 +310,7 @@ async def verify_product_image(
 
     # Validate image file
     if not image.content_type or not image.content_type.startswith("image/"):
+        logger.warning(f"Invalid file type uploaded: {image.content_type}")
         raise HTTPException(
             status_code=400,
             detail=f"Invalid file type: {image.content_type}. Please upload an image file.",
@@ -301,8 +321,10 @@ async def verify_product_image(
     image.file.seek(0, 2)  # Move to end of file to get size
     file_size = image.file.tell()
     image.file.seek(0)  # Move back to beginning of file
+    logger.debug(f"Image file size: {file_size / 1024:.2f} KB")
 
     if file_size > max_file_size:
+        logger.warning(f"File too large: {file_size / 1024 / 1024:.2f} MB")
         raise HTTPException(
             status_code=413, detail="File too large. Maximum size is 5MB."
         )
@@ -319,26 +341,36 @@ async def verify_product_image(
             )
 
         # Step 1: Extract structured data directly from image using Gemini
+        logger.info("Extracting fields from image using Gemini")
         extracted_data = await extract_fields_from_image(
             image_bytes, image.content_type
         )
+        logger.debug(f"Extracted fields: registration_number={extracted_data['extracted_fields'].get('registration_number')}, "
+                    f"brand_name={extracted_data['extracted_fields'].get('brand_name')}")
 
         # Step 2: Convert extracted fields to search dict and query FDA database
         search_dict = convert_extracted_fields_to_search_dict(
             extracted_data["extracted_fields"]
         )
+        logger.info(f"Searching FDA database with {len(search_dict)} extracted fields")
 
         search_results = await verification_service.search_and_rank_products(
             search_dict
         )
 
         fuzzy_results = [result.to_dict() for result in search_results]
+        logger.info(f"Found {len(fuzzy_results)} potential matches from database")
 
         # Step 3: AI-assisted intelligent matching
+        logger.info("Running AI-assisted matching with Gemini")
         ai_verification = await ai_assisted_verification(
             extracted_fields=search_dict,
             raw_text=extracted_data.get("raw_text", ""),
             fuzzy_results=fuzzy_results,
+        )
+        logger.info(
+            f"AI verification complete: status={ai_verification['confidence']}% confidence, "
+            f"matched_index={ai_verification['matched_product_index']}"
         )
 
         # Determine final match
@@ -355,6 +387,8 @@ async def verify_product_image(
         elif ai_verification["confidence"] > 50:
             verification_status = "uncertain"
 
+        logger.info(f"Image verification result: {verification_status} (confidence: {ai_verification['confidence']}%)")
+
         return ImageVerificationResponse(
             verification_status=verification_status,
             confidence=ai_verification["confidence"],
@@ -366,6 +400,8 @@ async def verify_product_image(
 
     except Exception as e:
         # Log the detailed error server-side for debugging
+        logger.error(f"Image verification failed: {str(e)}")
+        logger.exception("Full traceback:")
         raise HTTPException(
             status_code=500, detail="Image verification failed. Please try again."
         ) from e
@@ -684,10 +720,12 @@ async def new_verify_product_image(
     """
     from app.services.ocr_service import get_ocr_service
 
+    logger.info(f"Hybrid OCR verification request: filename={image.filename}, type={image.content_type}")
     ocr_service = get_ocr_service()
 
     # Validate image file
     if not image.content_type or not image.content_type.startswith("image/"):
+        logger.warning(f"Invalid file type for hybrid OCR: {image.content_type}")
         raise HTTPException(
             status_code=400,
             detail=f"Invalid file type: {image.content_type}. Please upload an image file.",
@@ -718,9 +756,15 @@ async def new_verify_product_image(
                 detail="File type mismatch. The uploaded file does not match the declared content type.",
             )
 
-        # Step 1-3: Extract with hybrid OCR pipeline (PaddleOCR + Groq + Gemini)
+        # Step 1-3: Extract with hybrid OCR pipeline (Tesseract + Groq + Gemini)
+        logger.info("Starting hybrid OCR extraction (Tesseract + Groq + Gemini)")
         extracted_data, processing_metadata = await ocr_service.extract_product_info(
             image_bytes, image.content_type
+        )
+        logger.info(
+            f"OCR extraction complete: layers_used={processing_metadata.layers_used}, "
+            f"total_time={processing_metadata.total_time:.2f}s, "
+            f"paddle_confidence={processing_metadata.paddle_confidence:.2f}"
         )
 
         # Convert to search dict
@@ -795,7 +839,12 @@ async def new_verify_product_image(
             "gemini_used": processing_metadata.gemini_used,
         }
 
-        time_module.time() - endpoint_start
+        endpoint_total_time = time_module.time() - endpoint_start
+        logger.success(
+            f"Hybrid verification complete: status={verification_status}, "
+            f"confidence={ai_verification['confidence']}%, "
+            f"endpoint_time={endpoint_total_time:.2f}s"
+        )
 
         return HybridVerificationResponse(
             verification_status=verification_status,
@@ -809,6 +858,8 @@ async def new_verify_product_image(
 
     except Exception as e:
         # Log the detailed error server-side for debugging
+        logger.error(f"Hybrid OCR verification failed: {str(e)}")
+        logger.exception("Full traceback:")
         raise HTTPException(
             status_code=500,
             detail=f"Hybrid OCR verification failed: {str(e)}. Please try again.",
