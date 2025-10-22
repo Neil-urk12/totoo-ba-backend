@@ -5,7 +5,7 @@ AI RAG Product Checker is a FastAPI-based service designed to verify FDA Philipp
 ## Features
 
 - **ID-based Verification**: Check products by registration numbers, license numbers, or tracking numbers
-- **AI Image Verification**: Upload product images for AI-powered extraction and verification using Google's Gemini
+- **AI Image Verification**: Upload product images for AI-powered extraction and verification using Groq's Llama models
 - **Fuzzy Matching**: Intelligent matching with multiple scoring algorithms
 - **Multi-category Support**: Handles drugs, food, medical devices, cosmetics, and establishments
 - **RESTful API**: Clean API endpoints with proper error handling and documentation
@@ -92,8 +92,8 @@ BACKGROUND_TASK_TIMEOUT=300
 # Logging Configuration
 LOG_LEVEL=INFO
 
-# Gemini AI Configuration
-GEMINI_API_KEY=your-gemini-api-key-here
+# Groq AI Configuration
+GROQ_API_KEY=your-groq-api-key-here
 ```
 
 ### Database Setup
@@ -172,7 +172,7 @@ The API is documented using FastAPI's built-in documentation. After starting the
 
 1. **Database Connection Issues**: Ensure PostgreSQL is running and your `DATABASE_URL` is correct.
 2. **Dependency Issues**: Make sure you're using the virtual environment and have installed all requirements.
-3. **AI Service Issues**: Verify your `GEMINI_API_KEY` is set correctly and you have internet access to the Google services.
+3. **AI Service Issues**: Verify your `GROQ_API_KEY` is set correctly and you have internet access to the Groq services.
 
 ### Error Codes
 
@@ -199,5 +199,5 @@ This project is licensed under the [MIT License](LICENSE).
 
 - FastAPI for the excellent web framework
 - SQLAlchemy for the ORM
-- Google's Gemini for AI capabilities
+- Groq's Llama models for AI capabilities
 - All contributors to the open-source libraries used in this project

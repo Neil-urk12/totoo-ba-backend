@@ -23,24 +23,18 @@ class ProductVerificationResponse(BaseModel):
     details: dict | None = None
 
 
-# Initialize Gemini client
+# Initialize Groq client
+from groq import Groq
+
 try:
-    from google import genai
-    from google.genai import types
-
-    GEMINI_AVAILABLE = True
-    api_key = os.getenv("GEMINI_API_KEY")
-    if api_key:
-        client = genai.Client(api_key=api_key)
-    else:
-        GEMINI_AVAILABLE = False
-        client = None
-except ImportError:
-    GEMINI_AVAILABLE = False
-    client = None
+    GROQ_AVAILABLE = bool(os.getenv("GROQ_API_KEY"))
+    groq_client = Groq(api_key=os.getenv("GROQ_API_KEY")) if GROQ_AVAILABLE else None
+except Exception:
+    GROQ_AVAILABLE = False
+    groq_client = None
 
 
-# Pydantic models for structured Gemini output
+# Pydantic models for structured Groq output
 class ExtractedFields(BaseModel):
     """Structured fields extracted from product image"""
 
@@ -280,12 +274,12 @@ async def verify_product(
         )
 
 
-# Image verification endpoint using Gemini 2.5 Flash
+# Image verification endpoint using Groq Llama 4 Maverick
 @router.post(
     "/verify-image",
     response_model=ImageVerificationResponse,
     summary="Verify Product from Image",
-    description="Verifies a product by analyzing an uploaded image using Gemini 2.5 Flash AI",
+    description="Verifies a product by analyzing an uploaded image using Groq Llama 4 Maverick AI",
 )
 async def verify_product_image(
     image: UploadFile = File(...),
@@ -295,14 +289,14 @@ async def verify_product_image(
 ):
     """
     Verify a product by analyzing an uploaded image.
-    Uses Gemini 2.5 Flash to extract text and match against FDA database.
+    Uses Groq Llama 4 Maverick to extract text and match against FDA database.
 
-    No OCR preprocessing required - Gemini handles vision understanding directly.
+    No OCR preprocessing required - Groq handles vision understanding directly.
     """
     logger.info(f"Image verification request: filename={image.filename}, type={image.content_type}")
 
-    if not GEMINI_AVAILABLE or not client:
-        logger.error("Gemini AI service unavailable")
+    if not GROQ_AVAILABLE or not groq_client:
+        logger.error("Groq AI service unavailable")
         raise HTTPException(
             status_code=500,
             detail="AI verification service temporarily unavailable. Please try again later.",
@@ -340,8 +334,8 @@ async def verify_product_image(
                 detail="File type mismatch. The uploaded file does not match the declared content type.",
             )
 
-        # Step 1: Extract structured data directly from image using Gemini
-        logger.info("Extracting fields from image using Gemini")
+        # Step 1: Extract structured data directly from image using Groq
+        logger.info("Extracting fields from image using Groq Llama 4 Maverick")
         extracted_data = await extract_fields_from_image(
             image_bytes, image.content_type
         )
@@ -362,7 +356,7 @@ async def verify_product_image(
         logger.info(f"Found {len(fuzzy_results)} potential matches from database")
 
         # Step 3: AI-assisted intelligent matching
-        logger.info("Running AI-assisted matching with Gemini")
+        logger.info("Running AI-assisted matching with Groq Llama 4 Maverick")
         ai_verification = await ai_assisted_verification(
             extracted_fields=search_dict,
             raw_text=extracted_data.get("raw_text", ""),
@@ -454,8 +448,8 @@ def convert_extracted_fields_to_search_dict(extracted_fields: dict) -> dict:
 
 async def extract_fields_from_image(image_bytes: bytes, mime_type: str) -> dict:
     """
-    Extract structured fields directly from product image using Gemini 2.5 Flash.
-    No OCR preprocessing - Gemini handles vision understanding natively.
+    Extract structured fields directly from product image using Groq Llama 4 Maverick.
+    No OCR preprocessing - Groq handles vision understanding natively.
     """
 
     prompt = """You are an expert FDA Philippines product verification assistant.
@@ -488,33 +482,64 @@ IMPORTANT EXTRACTION RULES:
 Also provide the complete raw text visible in the image for fallback matching."""
 
     try:
-        # Create image part from bytes
-        image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+        # Convert image to base64 for Groq
+        import base64
+        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        image_url = f"data:{mime_type};base64,{image_base64}"
 
         # Generate structured content
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[image_part, prompt],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=ExtractedFields,
-                temperature=0.1,
-            ),
+        completion = groq_client.chat.completions.create(
+            model="meta-llama/llama-4-maverick-17b-128e-instruct",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": image_url}}
+                    ]
+                }
+            ],
+            temperature=0.1,
+            max_tokens=1000,
+            response_format={"type": "json_object"}
         )
 
-        extracted_fields: ExtractedFields = response.parsed
+        # Parse JSON response
+        import json
+        result_text = completion.choices[0].message.content
+        parsed = json.loads(result_text)
+
+        extracted_fields = ExtractedFields(
+            registration_number=parsed.get("registration_number"),
+            brand_name=parsed.get("brand_name"),
+            product_description=parsed.get("product_description"),
+            manufacturer=parsed.get("manufacturer"),
+            expiry_date=parsed.get("expiry_date"),
+            batch_number=parsed.get("batch_number"),
+            net_weight=parsed.get("net_weight"),
+        )
 
         # Also get raw text for additional context
-        raw_text_prompt = "Extract all visible text from this image as plain text, preserving layout where possible."
-        raw_response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[image_part, raw_text_prompt],
-            config=types.GenerateContentConfig(temperature=0.1),
+        raw_text_completion = groq_client.chat.completions.create(
+            model="meta-llama/llama-4-maverick-17b-128e-instruct",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Extract all visible text from this image as plain text, preserving layout where possible."},
+                        {"type": "image_url", "image_url": {"url": image_url}}
+                    ]
+                }
+            ],
+            temperature=0.1,
+            max_tokens=1000,
         )
+
+        raw_text = raw_text_completion.choices[0].message.content
 
         return {
             "extracted_fields": extracted_fields.model_dump(),
-            "raw_text": raw_response.text,
+            "raw_text": raw_text,
         }
 
     except Exception as e:
@@ -528,7 +553,7 @@ async def ai_assisted_verification(
     extracted_fields: dict, raw_text: str, fuzzy_results: dict
 ) -> dict:
     """
-    Use Gemini 2.5 Flash for intelligent matching with improved fuzzy tolerance.
+    Use Groq Llama 4 Maverick for intelligent matching with improved fuzzy tolerance.
     """
 
     alternatives_text = "No potential matches found in database."
@@ -581,23 +606,24 @@ DECISION PRIORITY:
 Provide structured output with your decision and clear reasoning."""
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=VerificationResult,
-                temperature=0.3,  # Slightly higher for flexible matching
-            ),
+        completion = groq_client.chat.completions.create(
+            model="meta-llama/llama-4-maverick-17b-128e-instruct",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,  # Slightly higher for flexible matching
+            max_tokens=1000,
+            response_format={"type": "json_object"}
         )
 
-        result: VerificationResult = response.parsed
+        # Parse JSON response
+        import json
+        result_text = completion.choices[0].message.content
+        parsed = json.loads(result_text)
 
         return {
-            "matched_product_index": result.matched_product_index,
-            "confidence": result.confidence,
-            "extracted_fields": result.extracted_fields.model_dump(),
-            "reasoning": result.reasoning,
+            "matched_product_index": parsed.get("matched_product_index"),
+            "confidence": parsed.get("confidence", 0),
+            "extracted_fields": parsed.get("extracted_fields", extracted_fields),
+            "reasoning": parsed.get("reasoning", "No reasoning provided"),
         }
 
     except Exception:
@@ -711,11 +737,11 @@ async def new_verify_product_image(
     1. **Groq Llama 4 Scout Vision**: Fast image OCR extraction (~1s)
     2. **Groq Llama 3.1 8B**: Structured field extraction (~0.5s)
     3. **Fast Fuzzy Matching**: Database matching without LLM (~0.1s)
-    4. **Gemini 2.5 Flash**: Only for OCR fallback if needed
+    4. **Groq Llama 4 Maverick**: Only for OCR fallback if needed
 
     **Performance Benefits:**
-    - 10× faster than Gemini-only approach (~2s vs ~20s)
-    - 90% cost reduction (no Gemini for matching)
+    - 10× faster than previous approach (~2s vs ~20s)
+    - 90% cost reduction (Groq-only processing)
     - CPU-compatible using Tesseract
     """
     from app.services.ocr_service import get_ocr_service
@@ -756,8 +782,8 @@ async def new_verify_product_image(
                 detail="File type mismatch. The uploaded file does not match the declared content type.",
             )
 
-        # Step 1-3: Extract with hybrid OCR pipeline (Tesseract + Groq + Gemini)
-        logger.info("Starting hybrid OCR extraction (Tesseract + Groq + Gemini)")
+        # Step 1-3: Extract with hybrid OCR pipeline (Tesseract + Groq + Groq fallback)
+        logger.info("Starting hybrid OCR extraction (Tesseract + Groq + Groq fallback)")
         extracted_data, processing_metadata = await ocr_service.extract_product_info(
             image_bytes, image.content_type
         )
@@ -792,7 +818,7 @@ async def new_verify_product_image(
 
         time.time() - db_search_start
 
-        # Step 5: AI-assisted intelligent matching (using existing Gemini logic)
+        # Step 5: AI-assisted intelligent matching (using existing Groq logic)
         extracted_fields_dict = {
             "registration_number": extracted_data.registration_number,
             "brand_name": extracted_data.brand_name,
@@ -803,7 +829,7 @@ async def new_verify_product_image(
             "net_weight": extracted_data.net_weight,
         }
 
-        # Use fast fuzzy matching instead of Gemini
+        # Use fast fuzzy matching instead of additional LLM calls
         ai_verify_start = time.time()
 
         # Simple rule-based matching using existing data
@@ -832,11 +858,11 @@ async def new_verify_product_image(
         metadata_dict = {
             "groq_vision_time_ms": round(processing_metadata.groq_vision_time * 1000, 2),
             "groq_llama31_time_ms": round(processing_metadata.cerebras_time * 1000, 2),  # Reusing cerebras_time field for consistency
-            "gemini_time_ms": round(processing_metadata.gemini_time * 1000, 2),
+            "groq_fallback_time_ms": round(processing_metadata.groq_fallback_time * 1000, 2),
             "total_time_ms": round(processing_metadata.total_time * 1000, 2),
             "layers_used": processing_metadata.layers_used,
             "groq_vision_confidence": round(processing_metadata.groq_vision_confidence, 2),
-            "gemini_used": processing_metadata.gemini_used,
+            "groq_fallback_used": processing_metadata.groq_fallback_used,
         }
 
         endpoint_total_time = time_module.time() - endpoint_start
