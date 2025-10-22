@@ -689,7 +689,11 @@ def fast_fuzzy_match(extracted_fields: dict, fuzzy_results: list[dict]) -> dict:
 def validate_image_content(file_bytes: bytes, mime_type: str) -> bool:
     """
     Validate that the file content matches the expected image type using magic numbers.
+    Handles common issues with MIME type formatting and multipart boundaries.
     """
+    # Normalize MIME type: strip whitespace and convert to lowercase
+    normalized_mime_type = mime_type.strip().lower()
+    
     # Define magic numbers for common image formats
     magic_numbers = {
         "image/jpeg": bytes([0xFF, 0xD8, 0xFF]),
@@ -698,11 +702,37 @@ def validate_image_content(file_bytes: bytes, mime_type: str) -> bool:
         "image/webp": bytes([0x52, 0x49, 0x46, 0x46]),  # First 4 bytes of WebP files
     }
 
-    if mime_type not in magic_numbers:
+    if normalized_mime_type not in magic_numbers:
+        logger.warning(f"Unsupported MIME type for validation: '{mime_type}' (normalized: '{normalized_mime_type}')")
         return False
 
-    expected_header = magic_numbers[mime_type]
-    return file_bytes.startswith(expected_header)
+    expected_header = magic_numbers[normalized_mime_type]
+    
+    # Check if file is large enough
+    if len(file_bytes) < len(expected_header):
+        logger.warning(f"File too small for validation: {len(file_bytes)} bytes, need {len(expected_header)} bytes")
+        return False
+    
+    # Check for exact match at start
+    if file_bytes.startswith(expected_header):
+        return True
+    
+    # Fallback: Search for magic number within first 512 bytes (handles multipart boundary issues)
+    search_window = file_bytes[:512]
+    magic_index = search_window.find(expected_header)
+    
+    if magic_index != -1 and magic_index < 100:  # Magic number found within reasonable offset
+        logger.info(f"Found {normalized_mime_type} magic number at offset {magic_index} (likely multipart boundary issue)")
+        return True
+    
+    # Log validation failure details for debugging
+    actual_header = file_bytes[:len(expected_header)]
+    logger.warning(
+        f"Image validation failed - MIME: '{mime_type}' (normalized: '{normalized_mime_type}'), "
+        f"expected: {expected_header.hex()}, got: {actual_header.hex()}"
+    )
+    
+    return False
 
 
 # New hybrid OCR verification endpoint
