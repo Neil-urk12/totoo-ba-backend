@@ -272,41 +272,43 @@ class ProductVerificationService:
                         matched_fields.append(field)
                         break
                     # Core brand substring match (e.g., "C2" in "C2 COOL & CLEAN")
-                    if search_brand in field_brand or field_brand in search_brand:
-                        # Use fuzzy similarity to score how close the match is
-                        # This distinguishes "Neozep" (0.93) from "NEO" (0.47) when searching for "Neozept"
-                        similarity = difflib.SequenceMatcher(
-                            None, search_brand, field_brand
-                        ).ratio()
-
-                        # Base score weighted by similarity: 0.3 to 0.45
-                        # Higher similarity = higher score
-                        base_score = 0.30 + (similarity * 0.15)
-
-                        # Bonus: Check if brand contains words from product description
-                        # This boosts "C2 COOL & CLEAN" over just "C2"
-                        if search_info.get("product_description"):
-                            prod_desc = search_info["product_description"].lower()
-                            brand_words = set(field_brand.split())
-                            desc_words = {
-                                word for word in prod_desc.split() if len(word) >= 3
-                            }
-                            common_brand_desc = brand_words & desc_words
-
-                            # If brand contains 2+ words from description, give bonus
-                            if len(common_brand_desc) >= 2:
-                                base_score += 0.05  # Additional boost
+                    elif search_brand in field_brand or field_brand in search_brand:
+                        # When short search term is in longer brand, prioritize brands with extra matching words
+                        if search_brand in field_brand and len(field_brand) > len(search_brand):
+                            # Base score for the substring match
+                            base_score = 0.40
+                            
+                            # Major bonus for additional words in brand that match product description
+                            if search_info.get("product_description"):
+                                prod_desc = search_info["product_description"].lower()
+                                brand_words = set(field_brand.split())
+                                desc_words = {word for word in prod_desc.split() if len(word) >= 3}
+                                common_brand_desc = brand_words & desc_words
+                                
+                                # Remove the search brand itself from the count
+                                common_brand_desc.discard(search_brand)
+                                
+                                if len(common_brand_desc) >= 2:
+                                    base_score += 0.10
+                                elif len(common_brand_desc) == 1:
+                                    base_score += 0.05
+                        else:
+                            similarity = difflib.SequenceMatcher(None, search_brand, field_brand).ratio()
+                            
+                            # Base score weighted by similarity: 0.3 to 0.45
+                            base_score = 0.30 + (similarity * 0.15)
 
                         score += base_score
                         matched_fields.append(field)
                         break
                     # Word-level brand match
-                    search_words = set(search_brand.split())
-                    field_words = set(field_brand.split())
-                    if search_words & field_words:
-                        score += 0.3  # 30% weight for word-level brand match
-                        matched_fields.append(field)
-                        break
+                    else:
+                        search_words = set(search_brand.split())
+                        field_words = set(field_brand.split())
+                        if search_words & field_words:
+                            score += 0.3  # 30% weight for word-level brand match
+                            matched_fields.append(field)
+                            break
 
         # Company/establishment name match
         if search_info.get("company_name"):

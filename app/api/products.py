@@ -708,10 +708,10 @@ async def new_verify_product_image(
     Verify a product by analyzing an uploaded image using hybrid OCR approach.
 
     **Three-Layer Processing Pipeline:**
-    1. **Tesseract OCR**: Fast text extraction (~1s)
-    2. **Groq Llama 3.1**: Structured field extraction (~0.5s)
+    1. **Groq Llama 4 Scout Vision**: Fast image OCR extraction (~1s)
+    2. **Groq Llama 3.1 8B**: Structured field extraction (~0.5s)
     3. **Fast Fuzzy Matching**: Database matching without LLM (~0.1s)
-    4. **Gemini 2.5 Flash**: Only for OCR fallback if Tesseract fails
+    4. **Gemini 2.5 Flash**: Only for OCR fallback if needed
 
     **Performance Benefits:**
     - 10× faster than Gemini-only approach (~2s vs ~20s)
@@ -831,7 +831,7 @@ async def new_verify_product_image(
         # Build processing metadata for response
         metadata_dict = {
             "groq_vision_time_ms": round(processing_metadata.groq_vision_time * 1000, 2),
-            "groq_time_ms": round(processing_metadata.groq_time * 1000, 2),
+            "groq_llama31_time_ms": round(processing_metadata.cerebras_time * 1000, 2),  # Reusing cerebras_time field for consistency
             "gemini_time_ms": round(processing_metadata.gemini_time * 1000, 2),
             "total_time_ms": round(processing_metadata.total_time * 1000, 2),
             "layers_used": processing_metadata.layers_used,
