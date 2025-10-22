@@ -1,5 +1,7 @@
 # app/main.py
 from fastapi import Depends, FastAPI
+from fastapi.responses import ORJSONResponse
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
@@ -15,7 +17,7 @@ settings = get_settings()
 setup_logging(settings)
 
 # Initialize FastAPI with environment-specific config
-app = FastAPI(**settings.fastapi_kwargs)
+app = FastAPI(default_response_class=ORJSONResponse, **settings.fastapi_kwargs)
 
 # CORS middleware with settings
 app.add_middleware(
@@ -26,23 +28,26 @@ app.add_middleware(
     allow_headers=settings.cors_allow_headers,
 )
 
+# Enable gzip compression for large responses
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 
 @app.on_event("startup")
 async def startup():
-    """Initialize database on startup"""
+    """Initialize lightweight services on startup (no auto DDL)."""
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Environment: {settings.environment}")
 
-    # Only try to create tables if we have a valid engine
-    if engine is not None:
+    # In development, auto-create tables to ease local workflows
+    if engine is None:
+        logger.warning("Database engine not initialized")
+    elif settings.is_development:
         try:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-            logger.info("Database tables created/verified")
+            logger.info("Database tables created/verified (development mode)")
         except Exception as e:
             logger.error(f"Failed to create database tables: {e}")
-    else:
-        logger.warning("Database engine not initialized")
 
     # Test database connection
     if await test_connection_async():

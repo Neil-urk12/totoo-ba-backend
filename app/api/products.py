@@ -24,14 +24,19 @@ class ProductVerificationResponse(BaseModel):
 
 
 # Initialize Groq client
-from groq import Groq
+from functools import lru_cache
 
-try:
-    GROQ_AVAILABLE = bool(os.getenv("GROQ_API_KEY"))
-    groq_client = Groq(api_key=os.getenv("GROQ_API_KEY")) if GROQ_AVAILABLE else None
-except Exception:
-    GROQ_AVAILABLE = False
-    groq_client = None
+
+@lru_cache(maxsize=1)
+def _get_groq_client():
+    try:
+        from groq import Groq
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            return False, None
+        return True, Groq(api_key=api_key)
+    except Exception:
+        return False, None
 
 
 # Pydantic models for structured Groq output
@@ -295,7 +300,8 @@ async def verify_product_image(
     """
     logger.info(f"Image verification request: filename={image.filename}, type={image.content_type}")
 
-    if not GROQ_AVAILABLE or not groq_client:
+    GROQ_AVAILABLE, groq_client = _get_groq_client()
+    if not GROQ_AVAILABLE or groq_client is None:
         logger.error("Groq AI service unavailable")
         raise HTTPException(
             status_code=500,
@@ -482,6 +488,9 @@ IMPORTANT EXTRACTION RULES:
 Also provide the complete raw text visible in the image for fallback matching."""
 
     try:
+        GROQ_AVAILABLE, groq_client = _get_groq_client()
+        if not GROQ_AVAILABLE or groq_client is None:
+            raise HTTPException(status_code=500, detail="AI verification service unavailable")
         # Convert image to base64 for Groq
         import base64
         image_base64 = base64.b64encode(image_bytes).decode('utf-8')
@@ -542,6 +551,8 @@ Also provide the complete raw text visible in the image for fallback matching.""
             "raw_text": raw_text,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         # Log the detailed error server-side for debugging
         raise HTTPException(
@@ -606,6 +617,10 @@ DECISION PRIORITY:
 Provide structured output with your decision and clear reasoning."""
 
     try:
+        GROQ_AVAILABLE, groq_client = _get_groq_client()
+        if not GROQ_AVAILABLE or groq_client is None:
+            raise RuntimeError("AI verification unavailable")
+
         completion = groq_client.chat.completions.create(
             model="meta-llama/llama-4-maverick-17b-128e-instruct",
             messages=[{"role": "user", "content": prompt}],

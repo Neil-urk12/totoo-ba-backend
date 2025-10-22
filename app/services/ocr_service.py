@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from groq import Groq
+from functools import lru_cache
 from loguru import logger
 
 # Import Cerebras SDK
@@ -29,12 +29,16 @@ except Exception:
 
 # Gemini imports removed - using Groq-only approach
 
-try:
-    GROQ_AVAILABLE = bool(os.getenv("GROQ_API_KEY"))
-    groq_client = Groq(api_key=os.getenv("GROQ_API_KEY")) if GROQ_AVAILABLE else None
-except Exception:
-    GROQ_AVAILABLE = False
-    groq_client = None
+@lru_cache(maxsize=1)
+def _get_groq_client():
+    try:
+        from groq import Groq
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            return False, None
+        return True, Groq(api_key=api_key)
+    except Exception:
+        return False, None
 
 # Gemini client removed - using Groq-only approach
 
@@ -122,6 +126,7 @@ class HybridOCRService:
         """
         logger.debug("Starting Groq Llama 4 Scout vision OCR extraction")
 
+        GROQ_AVAILABLE, groq_client = _get_groq_client()
         if not GROQ_AVAILABLE or not groq_client:
             logger.error("Groq API key not configured")
             raise RuntimeError("Groq API is not available")
@@ -321,6 +326,7 @@ Be thorough and extract even small or partially visible text."""
             Structured extracted data
         """
         logger.debug(f"Starting Groq Llama 3.1 8B extraction with {len(raw_text)} chars of text")
+        GROQ_AVAILABLE, groq_client = _get_groq_client()
         if not GROQ_AVAILABLE or not groq_client:
             logger.error("Groq API key not configured")
             raise RuntimeError("Groq API is not available")
@@ -487,6 +493,7 @@ Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
             Structured extracted data from Groq Llama 4 Maverick
         """
         logger.info("Starting Groq Llama 4 Maverick fallback extraction")
+        GROQ_AVAILABLE, groq_client = _get_groq_client()
         if not GROQ_AVAILABLE or not groq_client:
             logger.error("Groq API key not configured")
             raise RuntimeError("Groq API is not available")

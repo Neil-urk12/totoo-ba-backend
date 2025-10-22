@@ -1,5 +1,6 @@
 # requirements.txt
 fastapi==0.115.0
+orjson>=3.10.7
 uvicorn[standard]==0.32.0
 sqlalchemy==2.0.36
 psycopg2-binary==2.9.10
@@ -13,13 +14,9 @@ pandas>=2.0.0
 xlrd>=2.0.1
 openpyxl>=3.0.0
 python-dotenv
-google-genai
-pytesseract
 Pillow
 groq>=0.4.0
 httpx>=0.28.0
-opencv-python-headless>=4.8.0
 numpy>=1.24.0
 loguru>=0.7.0
 ruff
-cerebras_cloud_sdk

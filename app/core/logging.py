@@ -73,6 +73,7 @@ def setup_logging(settings: Settings) -> None:
         serialize=settings.log_serialize,
         backtrace=settings.log_backtrace,
         diagnose=settings.log_diagnose,
+        enqueue=True,  # non-blocking logging to reduce request latency
     )
 
     # =========================================================================
@@ -97,7 +98,7 @@ def setup_logging(settings: Settings) -> None:
             serialize=settings.log_serialize,
             backtrace=settings.log_backtrace,
             diagnose=settings.log_diagnose,
-            enqueue=True,  # Async-safe file writing
+            enqueue=True,  # Async-safe file writing (non-blocking)
         )
 
     # =========================================================================

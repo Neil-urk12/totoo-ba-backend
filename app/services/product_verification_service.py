@@ -1,15 +1,20 @@
 """
 Product verification service layer.
 Handles business logic for product verification, scoring, and ranking.
+Optimized with lightweight in-memory caching for repeated queries.
 """
+from __future__ import annotations
 
 import difflib
+import json
 from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
 
 from app.api.repository.products_repository import FDAModel, ProductsRepository
+from app.core.cache import TTLCache
+from app.core.config import get_settings
 from app.models import (
     CosmeticIndustry,
     DrugIndustry,
@@ -85,6 +90,20 @@ class ProductSearchResult:
 
         return result
 
+
+# Module-level caches shared across requests/workers in a single process
+_settings = get_settings()
+_ttl_seconds = (
+    int(_settings.cache_ttl_minutes) * 60 if _settings.cache_enabled else 1
+)
+_max_size = int(_settings.cache_max_size)
+_ID_CACHE: TTLCache[str, list[ProductSearchResult]] = TTLCache(
+    max_size=_max_size, default_ttl_seconds=_ttl_seconds
+)
+_SEARCH_CACHE: TTLCache[str, list[ProductSearchResult]] = TTLCache(
+    max_size=_max_size, default_ttl_seconds=_ttl_seconds
+)
+
     def _get_primary_key_value(self) -> str:
         """Get the primary key value from the model instance."""
         if isinstance(self.model_instance, (DrugProducts, FoodProducts)):
@@ -124,6 +143,22 @@ class ProductVerificationService:
         """
         self.products_repo = products_repo
 
+    @staticmethod
+    def _make_id_key(product_id: str) -> str:
+        return product_id.strip().lower()
+
+    @staticmethod
+    def _make_search_key(product_info: dict[str, Any]) -> str:
+        # Canonicalize dict for stable cache keys
+        # Normalize strings to lowercase and strip whitespace
+        normalized: dict[str, Any] = {}
+        for k, v in product_info.items():
+            if isinstance(v, str):
+                normalized[k] = v.strip().lower()
+            else:
+                normalized[k] = v
+        return json.dumps(normalized, sort_keys=True, ensure_ascii=False)
+
     async def search_and_rank_products(
         self, product_info: dict[str, Any]
     ) -> list[ProductSearchResult]:
@@ -137,6 +172,13 @@ class ProductVerificationService:
             List of search results sorted by relevance
         """
         logger.debug(f"Searching products with criteria: {list(product_info.keys())}")
+
+        # Try cache first
+        cache_key = self._make_search_key(product_info)
+        cached = _SEARCH_CACHE.get(cache_key)
+        if cached is not None:
+            logger.debug("Cache hit for search_and_rank_products")
+            return cached
 
         # Repository handles data access only
         raw_results = await self.products_repo.fuzzy_search_by_product_info(
@@ -174,6 +216,8 @@ class ProductVerificationService:
         else:
             logger.info("No scored results found")
 
+        # Save to cache
+        _SEARCH_CACHE.set(cache_key, scored_results)
         return scored_results
 
     async def verify_product_by_id(self, product_id: str) -> list[ProductSearchResult]:
@@ -189,6 +233,13 @@ class ProductVerificationService:
             List of matching products with verification scores
         """
         logger.debug("Service: Verifying product by ID (optimized search)")
+
+        # Try cache first
+        cache_key = self._make_id_key(product_id)
+        cached = _ID_CACHE.get(cache_key)
+        if cached is not None:
+            logger.debug("Cache hit for verify_product_by_id")
+            return cached
 
         # Get raw data from repository using optimized single method (7 queries instead of 21)
         all_matches = await self.products_repo.search_by_any_id(product_id)
@@ -224,6 +275,8 @@ class ProductVerificationService:
         else:
             logger.info("Service: No matches found for product ID")
 
+        # Save to cache
+        _ID_CACHE.set(cache_key, results)
         return results
 
     def _calculate_relevance_score(
