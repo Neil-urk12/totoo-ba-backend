@@ -33,22 +33,22 @@ async def startup():
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Environment: {settings.environment}")
 
-    # Only try to create tables if we have a valid engine
-    if engine is not None:
+    # Create tables only in development to avoid startup overhead in prod
+    if settings.is_development and engine is not None:
         try:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-            logger.info("Database tables created/verified")
+            logger.info("Database tables created/verified (development mode)")
         except Exception as e:
             logger.error(f"Failed to create database tables: {e}")
-    else:
+    elif engine is None:
         logger.warning("Database engine not initialized")
 
-    # Test database connection
+    # Lightweight DB health check (SELECT 1)
     if await test_connection_async():
-        logger.success("Database connection established")
+        logger.success("Database connection healthy")
     else:
-        logger.error("Failed to connect to database")
+        logger.error("Database health check failed")
 
 
 app.include_router(products_router, prefix=settings.api_prefix)

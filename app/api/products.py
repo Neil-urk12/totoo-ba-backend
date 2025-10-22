@@ -23,21 +23,10 @@ class ProductVerificationResponse(BaseModel):
     details: dict | None = None
 
 
-# Initialize Gemini client
-try:
-    from google import genai
-    from google.genai import types
-
-    GEMINI_AVAILABLE = True
-    api_key = os.getenv("GEMINI_API_KEY")
-    if api_key:
-        client = genai.Client(api_key=api_key)
-    else:
-        GEMINI_AVAILABLE = False
-        client = None
-except ImportError:
-    GEMINI_AVAILABLE = False
-    client = None
+genai = None  # type: ignore
+types = None  # type: ignore
+client = None
+GEMINI_AVAILABLE = False
 
 
 # Pydantic models for structured Gemini output
@@ -301,6 +290,20 @@ async def verify_product_image(
     """
     logger.info(f"Image verification request: filename={image.filename}, type={image.content_type}")
 
+    global genai, types, client, GEMINI_AVAILABLE
+    if client is None:
+        try:
+            from google import genai as _genai  # type: ignore
+            from google.genai import types as _types  # type: ignore
+            genai = _genai
+            types = _types
+            api_key = os.getenv("GEMINI_API_KEY")
+            if api_key:
+                client = genai.Client(api_key=api_key)
+                GEMINI_AVAILABLE = True
+        except Exception:
+            GEMINI_AVAILABLE = False
+            client = None
     if not GEMINI_AVAILABLE or not client:
         logger.error("Gemini AI service unavailable")
         raise HTTPException(
@@ -487,7 +490,19 @@ IMPORTANT EXTRACTION RULES:
 
 Also provide the complete raw text visible in the image for fallback matching."""
 
+    global genai, types, client, GEMINI_AVAILABLE
     try:
+        if client is None:
+            from google import genai as _genai  # type: ignore
+            from google.genai import types as _types  # type: ignore
+            genai = _genai
+            types = _types
+            api_key = os.getenv("GEMINI_API_KEY")
+            if api_key:
+                client = genai.Client(api_key=api_key)
+                GEMINI_AVAILABLE = True
+        if not GEMINI_AVAILABLE or client is None:
+            raise RuntimeError("Gemini client unavailable")
         # Create image part from bytes
         image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
 
@@ -581,6 +596,18 @@ DECISION PRIORITY:
 Provide structured output with your decision and clear reasoning."""
 
     try:
+        global genai, types, client, GEMINI_AVAILABLE
+        if client is None:
+            from google import genai as _genai  # type: ignore
+            from google.genai import types as _types  # type: ignore
+            genai = _genai
+            types = _types
+            api_key = os.getenv("GEMINI_API_KEY")
+            if api_key:
+                client = genai.Client(api_key=api_key)
+                GEMINI_AVAILABLE = True
+        if not GEMINI_AVAILABLE or client is None:
+            raise RuntimeError("Gemini client unavailable")
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,

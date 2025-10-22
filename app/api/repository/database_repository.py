@@ -6,7 +6,7 @@ Provides common database operations and patterns for all repositories.
 from abc import ABC, abstractmethod
 from typing import Any, TypeVar
 
-from sqlalchemy import and_, or_, select, text
+from sqlalchemy import and_, or_, select, text, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
 
@@ -235,7 +235,9 @@ class BaseRepository[ModelType](ABC):  # noqa: B024
         Returns:
             Number of matching records
         """
-        query = select(self.model)
+        # Use COUNT(*) to avoid loading rows
+        query = select(func.count())
+        query = query.select_from(self.model)
 
         if search_fields:
             conditions = []
@@ -248,7 +250,7 @@ class BaseRepository[ModelType](ABC):  # noqa: B024
                 query = query.where(and_(*conditions))
 
         result = await self.session.execute(query)
-        return len(result.scalars().all())
+        return int(result.scalar_one())
 
 
 class MultiTableRepository(ABC):

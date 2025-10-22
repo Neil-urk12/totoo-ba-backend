@@ -9,40 +9,24 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-import cv2
-import numpy as np
-from groq import Groq
+# Lazy imports: heavy libs are imported inside methods to reduce cold-start cost
+cv2 = None  # type: ignore
+np = None  # type: ignore
+Groq = None  # type: ignore
 from loguru import logger
-from PIL import Image
+Image = None  # type: ignore
 
 # Initialize services
 # Using Tesseract OCR for CPU compatibility
 
-try:
-    from google import genai
-    from google.genai import types
+genai = None  # type: ignore
+types = None  # type: ignore
+GEMINI_AVAILABLE = False
 
-    GEMINI_AVAILABLE = True
-except ImportError:
-    GEMINI_AVAILABLE = False
+GROQ_AVAILABLE = False
+groq_client = None
 
-try:
-    GROQ_AVAILABLE = bool(os.getenv("GROQ_API_KEY"))
-    groq_client = Groq(api_key=os.getenv("GROQ_API_KEY")) if GROQ_AVAILABLE else None
-except Exception:
-    GROQ_AVAILABLE = False
-    groq_client = None
-
-# Initialize Gemini if available
-if GEMINI_AVAILABLE:
-    api_key = os.getenv("GEMINI_API_KEY")
-    if api_key:
-        gemini_client = genai.Client(api_key=api_key)
-    else:
-        GEMINI_AVAILABLE = False
-        gemini_client = None
-else:
-    gemini_client = None
+gemini_client = None
 
 
 # Simple in-memory cache for Gemini results
@@ -115,6 +99,17 @@ class HybridOCRService:
         if not self._ocr_initialized:
             try:
                 import pytesseract
+                # Delay heavy deps until needed
+                global cv2, np, Image
+                if cv2 is None:
+                    import cv2 as _cv2  # type: ignore
+                    cv2 = _cv2
+                if np is None:
+                    import numpy as _np  # type: ignore
+                    np = _np
+                if Image is None:
+                    from PIL import Image as _Image  # type: ignore
+                    Image = _Image
 
                 # Test if tesseract is available
                 pytesseract.get_tesseract_version()
@@ -138,6 +133,8 @@ class HybridOCRService:
             Preprocessed image as numpy array
         """
         # Convert bytes to numpy array
+        global cv2, np
+        assert cv2 is not None and np is not None
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
@@ -172,6 +169,8 @@ class HybridOCRService:
             raise RuntimeError("Tesseract OCR is not available")
 
         # Convert bytes to image
+        global cv2, np, Image
+        assert cv2 is not None and np is not None and Image is not None
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
@@ -290,6 +289,17 @@ class HybridOCRService:
             Structured extracted data
         """
         logger.debug(f"Starting Groq extraction with {len(raw_text)} chars of text")
+        global Groq, groq_client, GROQ_AVAILABLE
+        if groq_client is None:
+            try:
+                from groq import Groq as _Groq  # type: ignore
+                Groq = _Groq
+                api_key = os.getenv("GROQ_API_KEY")
+                GROQ_AVAILABLE = bool(api_key)
+                groq_client = Groq(api_key=api_key) if GROQ_AVAILABLE else None
+            except Exception:
+                GROQ_AVAILABLE = False
+                groq_client = None
         if not GROQ_AVAILABLE or not groq_client:
             logger.error("Groq API key not configured")
             raise RuntimeError("Groq API is not available")
@@ -382,6 +392,20 @@ Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
             Structured extracted data from Gemini
         """
         logger.info("Starting Gemini fallback extraction")
+        global genai, types, gemini_client, GEMINI_AVAILABLE
+        if gemini_client is None:
+            try:
+                from google import genai as _genai  # type: ignore
+                from google.genai import types as _types  # type: ignore
+                genai = _genai
+                types = _types
+                api_key = os.getenv("GEMINI_API_KEY")
+                if api_key:
+                    gemini_client = genai.Client(api_key=api_key)
+                    GEMINI_AVAILABLE = True
+            except Exception:
+                GEMINI_AVAILABLE = False
+                gemini_client = None
         if not GEMINI_AVAILABLE or not gemini_client:
             logger.error("Gemini API key not configured")
             raise RuntimeError("Gemini API is not available")
