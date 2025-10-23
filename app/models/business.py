@@ -1,3 +1,7 @@
+"""Business-related model exports.
+
+This module consolidates all business/industry establishment models.
+"""
 from .cosmetic_industry import CosmeticIndustry
 from .drug_industry import DrugIndustry
 from .food_industry import FoodIndustry

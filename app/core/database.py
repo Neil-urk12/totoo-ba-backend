@@ -1,4 +1,9 @@
 # app/core/database.py
+"""Database configuration and session management.
+
+This module provides both synchronous and asynchronous database engines,
+session makers, and connection testing utilities for PostgreSQL using SQLAlchemy.
+"""
 import os
 
 from dotenv import load_dotenv
@@ -57,6 +62,24 @@ engine = async_engine
 
 
 def get_db():
+    """Get a synchronous database session.
+    
+    This is a generator function that yields a database session and ensures
+    proper cleanup after use. Intended for use with FastAPI's Depends.
+    
+    Yields:
+        Session: A SQLAlchemy synchronous database session.
+        
+    Raises:
+        RuntimeError: If the database connection is not available.
+        
+    Example:
+        ```python
+        @app.get("/items")
+        def get_items(db: Session = Depends(get_db)):
+            return db.query(Item).all()
+        ```
+    """
     if SessionLocal is None:
         raise RuntimeError("Database connection not available")
     db = SessionLocal()
@@ -69,8 +92,19 @@ def get_db():
 
 
 def test_connection():
-    """
-    Test the database connection by executing a query on food_products table.
+    """Test the synchronous database connection.
+    
+    Executes a simple query on the food_products table to verify that
+    the database connection is working properly.
+    
+    Returns:
+        bool: True if the connection is successful, False otherwise.
+        
+    Example:
+        ```python
+        if test_connection():
+            print("Database is connected")
+        ```
     """
     try:
         with sync_engine.connect() as conn:
@@ -83,9 +117,20 @@ def test_connection():
 
 
 async def test_connection_async():
-    """
+    """Test the asynchronous database connection.
+    
     Async version of test_connection for use in async contexts.
-    Tests both raw SQL and ORM queries.
+    Tests both raw SQL queries and ORM queries to ensure the async
+    database engine is functioning correctly.
+    
+    Returns:
+        bool: True if the connection is successful, False otherwise.
+        
+    Example:
+        ```python
+        if await test_connection_async():
+            print("Async database is connected")
+        ```
     """
     if async_engine is None or async_session is None:
         return False

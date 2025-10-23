@@ -1,4 +1,13 @@
 # app/main.py
+"""Main FastAPI application entry point.
+
+Initializes the FastAPI application with:
+- Database connections and table creation
+- CORS middleware configuration
+- API route registration
+- Logging setup using Loguru
+- Health check endpoints
+"""
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -29,7 +38,13 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
-    """Initialize database on startup"""
+    """Initialize database on application startup.
+    
+    Performs the following initialization tasks:
+    - Creates database tables if they don't exist
+    - Tests database connectivity
+    - Logs startup information
+    """
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Environment: {settings.environment}")
 
@@ -56,6 +71,11 @@ app.include_router(products_router, prefix=settings.api_prefix)
 
 @app.get("/")
 async def root():
+    """Root endpoint providing basic application information.
+    
+    Returns:
+        dict: Application name, version, environment, and status.
+    """
     return {
         "app": settings.app_name,
         "version": settings.app_version,
@@ -66,7 +86,14 @@ async def root():
 
 @app.get("/health")
 async def health_check(settings: Settings = Depends(get_settings)):
-    """Health check endpoint with settings injection"""
+    """Health check endpoint for monitoring application status.
+    
+    Args:
+        settings: Injected application settings.
+        
+    Returns:
+        dict: Health status, environment, and database connection status.
+    """
     return {
         "status": "healthy",
         "environment": settings.environment,

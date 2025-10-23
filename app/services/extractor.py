@@ -1,3 +1,8 @@
+"""HTML table extraction utility using BeautifulSoup.
+
+Provides functionality to parse HTML files and extract table data.
+This is a utility script for data extraction tasks.
+"""
 from pathlib import Path
 
 from bs4 import BeautifulSoup
