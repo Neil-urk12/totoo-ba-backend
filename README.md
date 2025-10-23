@@ -4,11 +4,47 @@ AI RAG Product Checker is a FastAPI-based service designed to verify FDA Philipp
 
 ## Features
 
-- **ID-based Verification**: Check products by registration numbers, license numbers, or tracking numbers
-- **AI Image Verification**: Upload product images for AI-powered extraction and verification using Groq's Llama models
-- **Fuzzy Matching**: Intelligent matching with multiple scoring algorithms
-- **Multi-category Support**: Handles drugs, food, medical devices, cosmetics, and establishments
-- **RESTful API**: Clean API endpoints with proper error handling and documentation
+- **ID-based Verification**: Check products by registration numbers, license numbers, or tracking numbers.
+- **AI Image Verification**: Upload product images for AI-powered extraction and verification using Google's Gemini.
+- **Fuzzy Matching**: Intelligent matching with multiple scoring algorithms.
+- **Multi-category Support**: Handles drugs, food, medical devices, cosmetics, and establishments.
+- **RESTful API**: Clean API endpoints with proper error handling and documentation.
+- **Hybrid OCR**: A multi-layered OCR approach using Tesseract, Groq, and Gemini for fast and accurate text extraction.
+
+## Project Structure
+
+```
+├── app/
+│   ├── api/
+│   │   ├── deps.py
+│   │   ├── products.py
+│   │   └── repository/
+│   │       ├── database_repository.py
+│   │       └── products_repository.py
+│   ├── core/
+│   │   ├── config.py
+│   │   ├── database.py
+│   │   └── logging.py
+│   ├── models/
+│   ├── schemas/
+│   ├── services/
+│   │   ├── ocr_service.py
+│   │   ├── product_verification_service.py
+│   │   └── upsert_extractors/
+│   └── utils/
+├── bruno_api_testing/
+├── .env.example
+├── README.md
+└── requirements.txt
+```
+
+- **app/api**: API endpoints and dependency injection.
+- **app/core**: Core application settings, database configuration, and logging.
+- **app/models**: SQLAlchemy database models.
+- **app/schemas**: Pydantic schemas for data validation and serialization.
+- **app/services**: Business logic, including product verification and OCR services.
+- **app/utils**: Helper functions.
+- **bruno_api_testing**: API tests using Bruno.
 
 ## Prerequisites
 
@@ -19,24 +55,24 @@ AI RAG Product Checker is a FastAPI-based service designed to verify FDA Philipp
 
 ## Installation
 
-1. Clone the repository:
+1. **Clone the repository:**
    ```bash
    git clone <repository-url>
    cd <repository-name>
    ```
 
-2. Create a virtual environment:
+2. **Create a virtual environment:**
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. Install dependencies:
+3. **Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Create a `.env` file by copying the example:
+4. **Create a `.env` file by copying the example:**
    ```bash
    cp .env.example .env
    ```
