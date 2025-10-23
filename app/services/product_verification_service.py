@@ -272,29 +272,29 @@ class ProductVerificationService:
                         matched_fields.append(field)
                         break
                     # Core brand substring match (e.g., "C2" in "C2 COOL & CLEAN")
-                    elif search_brand in field_brand or field_brand in search_brand:
+                    if search_brand in field_brand or field_brand in search_brand:
                         # When short search term is in longer brand, prioritize brands with extra matching words
                         if search_brand in field_brand and len(field_brand) > len(search_brand):
                             # Base score for the substring match
                             base_score = 0.40
-                            
+
                             # Major bonus for additional words in brand that match product description
                             if search_info.get("product_description"):
                                 prod_desc = search_info["product_description"].lower()
                                 brand_words = set(field_brand.split())
                                 desc_words = {word for word in prod_desc.split() if len(word) >= 3}
                                 common_brand_desc = brand_words & desc_words
-                                
+
                                 # Remove the search brand itself from the count
                                 common_brand_desc.discard(search_brand)
-                                
+
                                 if len(common_brand_desc) >= 2:
                                     base_score += 0.10
                                 elif len(common_brand_desc) == 1:
                                     base_score += 0.05
                         else:
                             similarity = difflib.SequenceMatcher(None, search_brand, field_brand).ratio()
-                            
+
                             # Base score weighted by similarity: 0.3 to 0.45
                             base_score = 0.30 + (similarity * 0.15)
 
@@ -302,13 +302,12 @@ class ProductVerificationService:
                         matched_fields.append(field)
                         break
                     # Word-level brand match
-                    else:
-                        search_words = set(search_brand.split())
-                        field_words = set(field_brand.split())
-                        if search_words & field_words:
-                            score += 0.3  # 30% weight for word-level brand match
-                            matched_fields.append(field)
-                            break
+                    search_words = set(search_brand.split())
+                    field_words = set(field_brand.split())
+                    if search_words & field_words:
+                        score += 0.3  # 30% weight for word-level brand match
+                        matched_fields.append(field)
+                        break
 
         # Company/establishment name match
         if search_info.get("company_name"):
@@ -369,8 +368,7 @@ class ProductVerificationService:
 
         # Context bonus: If this is a drug product and generic_name has good matches with product_description
         # This helps rank "Neozep" (nasal decongestant) above "NEO" (jalapeno) when both match brand
-        if isinstance(model_instance, DrugProducts) and product_description:
-            if model_dict.get("generic_name"):
+        if isinstance(model_instance, DrugProducts) and product_description and model_dict.get("generic_name"):
                 search_words = {
                     word.lower()
                     for word in product_description.strip().split()
@@ -393,7 +391,7 @@ class ProductVerificationService:
                 elif len(common_words) == 1:
                     # Some overlap = moderate context match
                     score += 0.05
-                    logger.debug(f"Drug context bonus: +0.05 (1 matching term)")
+                    logger.debug("Drug context bonus: +0.05 (1 matching term)")
 
         logger.debug(f"Score calculated: {score:.2f}, matched_fields={matched_fields}")
         return score, matched_fields

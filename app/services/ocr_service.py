@@ -679,7 +679,7 @@ Return as JSON with these exact field names."""
             metadata.cerebras_time = time.time() - groq_start
             confidence_report.needs_groq_fallback = True
             confidence_report.reason = "Groq extraction failed"
-        
+
         # COMMENTED OUT - Cerebras Layer 2 (for latency comparison)
         # cerebras_start = time.time()
         # try:
