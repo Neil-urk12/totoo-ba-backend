@@ -10,6 +10,7 @@ Initializes the FastAPI application with:
 """
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import ORJSONResponse
 from loguru import logger
 
 from app.api.products import router as products_router
@@ -23,8 +24,8 @@ settings = get_settings()
 # Configure logging with Loguru
 setup_logging(settings)
 
-# Initialize FastAPI with environment-specific config
-app = FastAPI(**settings.fastapi_kwargs)
+# Initialize FastAPI with environment-specific config and ORJSONResponse
+app = FastAPI(default_response_class=ORJSONResponse, **settings.fastapi_kwargs)
 
 # CORS middleware with settings
 app.add_middleware(
