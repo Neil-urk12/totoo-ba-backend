@@ -63,16 +63,16 @@ engine = async_engine
 
 def get_db():
     """Get a synchronous database session.
-    
+
     This is a generator function that yields a database session and ensures
     proper cleanup after use. Intended for use with FastAPI's Depends.
-    
+
     Yields:
         Session: A SQLAlchemy synchronous database session.
-        
+
     Raises:
         RuntimeError: If the database connection is not available.
-        
+
     Example:
         ```python
         @app.get("/items")
@@ -93,13 +93,13 @@ def get_db():
 
 def test_connection():
     """Test the synchronous database connection.
-    
+
     Executes a simple query on the food_products table to verify that
     the database connection is working properly.
-    
+
     Returns:
         bool: True if the connection is successful, False otherwise.
-        
+
     Example:
         ```python
         if test_connection():
@@ -118,14 +118,14 @@ def test_connection():
 
 async def test_connection_async():
     """Test the asynchronous database connection.
-    
+
     Async version of test_connection for use in async contexts.
     Tests both raw SQL queries and ORM queries to ensure the async
     database engine is functioning correctly.
-    
+
     Returns:
         bool: True if the connection is successful, False otherwise.
-        
+
     Example:
         ```python
         if await test_connection_async():

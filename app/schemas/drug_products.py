@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 class DrugProductsBase(BaseModel):
     """Base schema for drug products with all common fields.
-    
+
     Attributes:
         registration_number: Unique registration identifier for the drug product.
         generic_name: Generic/scientific name of the drug.
@@ -49,7 +49,7 @@ class DrugProductsBase(BaseModel):
 
 class DrugProductsCreate(DrugProductsBase):
     """Schema for creating a new drug product record.
-    
+
     Inherits all fields from DrugProductsBase.
     """
     pass
@@ -57,9 +57,9 @@ class DrugProductsCreate(DrugProductsBase):
 
 class DrugProductsUpdate(BaseModel):
     """Schema for updating an existing drug product record.
-    
+
     All fields are optional to allow partial updates.
-    
+
     Attributes:
         generic_name: Generic/scientific name of the drug.
         brand_name: Commercial brand name of the drug.
@@ -96,7 +96,7 @@ class DrugProductsUpdate(BaseModel):
 
 class DrugProductsResponse(DrugProductsBase):
     """Schema for drug product API responses.
-    
+
     Inherits all fields from DrugProductsBase and enables ORM mode
     for automatic conversion from SQLAlchemy models.
     """

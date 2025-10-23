@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 class DrugIndustryBase(BaseModel):
     """Base schema for drug industry establishments with all common fields.
-    
+
     Attributes:
         license_number: Unique license identifier for the establishment.
         name_of_establishment: Name of the drug industry establishment.
@@ -33,7 +33,7 @@ class DrugIndustryBase(BaseModel):
 
 class DrugIndustryCreate(DrugIndustryBase):
     """Schema for creating a new drug industry establishment record.
-    
+
     Inherits all fields from DrugIndustryBase.
     """
     pass
@@ -41,9 +41,9 @@ class DrugIndustryCreate(DrugIndustryBase):
 
 class DrugIndustryUpdate(BaseModel):
     """Schema for updating an existing drug industry establishment record.
-    
+
     All fields are optional to allow partial updates.
-    
+
     Attributes:
         name_of_establishment: Name of the drug industry establishment.
         owner: Owner of the establishment.
@@ -64,7 +64,7 @@ class DrugIndustryUpdate(BaseModel):
 
 class DrugIndustryResponse(DrugIndustryBase):
     """Schema for drug industry establishment API responses.
-    
+
     Inherits all fields from DrugIndustryBase and enables ORM mode
     for automatic conversion from SQLAlchemy models.
     """

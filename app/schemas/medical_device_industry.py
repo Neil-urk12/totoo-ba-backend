@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 class MedicalDeviceIndustryBase(BaseModel):
     """Base schema for medical device industry establishments with all common fields.
-    
+
     Attributes:
         license_number: Unique license identifier for the establishment.
         name_of_establishment: Name of the medical device industry establishment.
@@ -33,7 +33,7 @@ class MedicalDeviceIndustryBase(BaseModel):
 
 class MedicalDeviceIndustryCreate(MedicalDeviceIndustryBase):
     """Schema for creating a new medical device industry establishment record.
-    
+
     Inherits all fields from MedicalDeviceIndustryBase.
     """
     pass
@@ -41,9 +41,9 @@ class MedicalDeviceIndustryCreate(MedicalDeviceIndustryBase):
 
 class MedicalDeviceIndustryUpdate(BaseModel):
     """Schema for updating an existing medical device industry establishment record.
-    
+
     All fields are optional to allow partial updates.
-    
+
     Attributes:
         name_of_establishment: Name of the medical device industry establishment.
         owner: Owner of the establishment.
@@ -64,7 +64,7 @@ class MedicalDeviceIndustryUpdate(BaseModel):
 
 class MedicalDeviceIndustryResponse(MedicalDeviceIndustryBase):
     """Schema for medical device industry establishment API responses.
-    
+
     Inherits all fields from MedicalDeviceIndustryBase and enables ORM mode
     for automatic conversion from SQLAlchemy models.
     """

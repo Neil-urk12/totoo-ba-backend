@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 class FoodProductsBase(BaseModel):
     """Base schema for food products with all common fields.
-    
+
     Attributes:
         registration_number: Unique registration identifier for the food product.
         company_name: Name of the company producing the food product.
@@ -31,7 +31,7 @@ class FoodProductsBase(BaseModel):
 
 class FoodProductsCreate(FoodProductsBase):
     """Schema for creating a new food product record.
-    
+
     Inherits all fields from FoodProductsBase.
     """
     pass
@@ -39,9 +39,9 @@ class FoodProductsCreate(FoodProductsBase):
 
 class FoodProductsUpdate(BaseModel):
     """Schema for updating an existing food product record.
-    
+
     All fields are optional to allow partial updates.
-    
+
     Attributes:
         company_name: Name of the company producing the food product.
         product_name: Name of the food product.
@@ -60,7 +60,7 @@ class FoodProductsUpdate(BaseModel):
 
 class FoodProductsResponse(FoodProductsBase):
     """Schema for food product API responses.
-    
+
     Inherits all fields from FoodProductsBase and enables ORM mode
     for automatic conversion from SQLAlchemy models.
     """

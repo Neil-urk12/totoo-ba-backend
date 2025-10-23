@@ -24,7 +24,7 @@ router = APIRouter(prefix="/products")
 # Define request and response models
 class ProductVerificationResponse(BaseModel):
     """Response model for product verification.
-    
+
     Attributes:
         product_id: The product identifier that was verified.
         is_verified: Whether the product was successfully verified.
@@ -48,7 +48,7 @@ except Exception:
 # Pydantic models for structured Groq output
 class ExtractedFields(BaseModel):
     """Structured fields extracted from product image.
-    
+
     Attributes:
         registration_number: FDA Philippines registration number.
         brand_name: Brand name of the product.
@@ -91,7 +91,7 @@ class ExtractedFields(BaseModel):
 
 class VerificationResult(BaseModel):
     """AI verification result with structured output.
-    
+
     Attributes:
         matched_product_index: Index of matched product from database (null if no match).
         confidence: Confidence score from 0-100.
@@ -111,7 +111,7 @@ class VerificationResult(BaseModel):
 
 class ImageVerificationResponse(BaseModel):
     """Response for image-based verification.
-    
+
     Attributes:
         verification_status: Status of verification ('verified', 'uncertain', 'not_found').
         confidence: Confidence score from 0-100.
@@ -143,7 +143,7 @@ async def verify_product(
     ),
 ):
     """Verify a product using its ID.
-    
+
     This endpoint checks if a product is legitimate and verified in the FDA database.
 
     Args:
@@ -152,7 +152,7 @@ async def verify_product(
 
     Returns:
         ProductVerificationResponse: Verification result with product details.
-        
+
     The product_id can be:
     - FDA registration number (BR-XXXX, DR-XXXXX, FR-XXXXX, etc.)
     - License number for establishments
@@ -332,7 +332,7 @@ async def verify_product_image(
     ),
 ):
     """Verify a product by analyzing an uploaded image.
-    
+
     Uses Groq Llama 4 Maverick to extract text and match against FDA database.
     No OCR preprocessing required - Groq handles vision understanding directly.
 
@@ -342,7 +342,7 @@ async def verify_product_image(
 
     Returns:
         ImageVerificationResponse: Verification result with extracted fields and matches.
-        
+
     Raises:
         HTTPException: If image is invalid, too large, or processing fails.
     """
@@ -789,7 +789,7 @@ def validate_image_content(file_bytes: bytes, mime_type: str) -> bool:
 # New hybrid OCR verification endpoint
 class HybridVerificationResponse(BaseModel):
     """Response for hybrid OCR-based verification.
-    
+
     Attributes:
         verification_status: Status of verification ('verified', 'uncertain', 'not_found').
         confidence: Confidence score from 0-100.
@@ -833,14 +833,14 @@ async def new_verify_product_image(
     - 10× faster than previous approach (~2s vs ~20s)
     - 90% cost reduction (Groq-only processing)
     - CPU-compatible using Tesseract
-    
+
     Args:
         image: Uploaded image file (max 5MB, JPEG/PNG/GIF/WebP).
         verification_service: Injected product verification service.
 
     Returns:
         HybridVerificationResponse: Verification result with processing metadata.
-        
+
     Raises:
         HTTPException: If image is invalid, too large, or processing fails.
     """

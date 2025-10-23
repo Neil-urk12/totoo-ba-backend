@@ -39,7 +39,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     """Initialize database on application startup.
-    
+
     Performs the following initialization tasks:
     - Creates database tables if they don't exist
     - Tests database connectivity
@@ -72,7 +72,7 @@ app.include_router(products_router, prefix=settings.api_prefix)
 @app.get("/")
 async def root():
     """Root endpoint providing basic application information.
-    
+
     Returns:
         dict: Application name, version, environment, and status.
     """
@@ -87,10 +87,10 @@ async def root():
 @app.get("/health")
 async def health_check(settings: Settings = Depends(get_settings)):
     """Health check endpoint for monitoring application status.
-    
+
     Args:
         settings: Injected application settings.
-        
+
     Returns:
         dict: Health status, environment, and database connection status.
     """

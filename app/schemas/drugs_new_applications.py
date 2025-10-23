@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 class DrugsNewApplicationsBase(BaseModel):
     """Base schema for new drug applications with all common fields.
-    
+
     Attributes:
         document_tracking_number: Unique tracking number for the application.
         applicant_company: Name of the company submitting the application.
@@ -33,7 +33,7 @@ class DrugsNewApplicationsBase(BaseModel):
 
 class DrugsNewApplicationsCreate(DrugsNewApplicationsBase):
     """Schema for creating a new drug application record.
-    
+
     Inherits all fields from DrugsNewApplicationsBase.
     """
     pass
@@ -41,9 +41,9 @@ class DrugsNewApplicationsCreate(DrugsNewApplicationsBase):
 
 class DrugsNewApplicationsUpdate(BaseModel):
     """Schema for updating an existing drug application record.
-    
+
     All fields are optional to allow partial updates.
-    
+
     Attributes:
         applicant_company: Name of the company submitting the application.
         brand_name: Brand name of the drug being applied for.
@@ -66,7 +66,7 @@ class DrugsNewApplicationsUpdate(BaseModel):
 
 class DrugsNewApplicationsResponse(DrugsNewApplicationsBase):
     """Schema for new drug application API responses.
-    
+
     Inherits all fields from DrugsNewApplicationsBase and enables ORM mode
     for automatic conversion from SQLAlchemy models.
     """

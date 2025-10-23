@@ -15,7 +15,7 @@ from app.services.product_verification_service import ProductVerificationService
 @pytest.fixture
 def mock_products_repo():
     """Create a mock ProductsRepository for testing.
-    
+
     Returns:
         Mock: Mocked repository with AsyncMock for async methods.
     """
@@ -26,10 +26,10 @@ def mock_products_repo():
 @pytest.fixture
 def verification_service(mock_products_repo):
     """Create a ProductVerificationService instance with mocked repository.
-    
+
     Args:
         mock_products_repo: Mocked repository fixture.
-        
+
     Returns:
         ProductVerificationService: Service instance for testing.
     """
@@ -38,7 +38,7 @@ def verification_service(mock_products_repo):
 @pytest.mark.asyncio
 async def test_search_and_rank_products_exact_match(verification_service, mock_products_repo):
     """Test product search with exact match on brand name and registration number.
-    
+
     Verifies that exact matches receive high relevance scores and correct matched fields.
     """
     # Given
@@ -67,7 +67,7 @@ async def test_search_and_rank_products_exact_match(verification_service, mock_p
 @pytest.mark.asyncio
 async def test_search_and_rank_products_partial_match(verification_service, mock_products_repo):
     """Test product search with partial brand name match.
-    
+
     Verifies that partial matches receive moderate relevance scores.
     """
     # Given
@@ -92,7 +92,7 @@ async def test_search_and_rank_products_partial_match(verification_service, mock
 @pytest.mark.asyncio
 async def test_search_and_rank_products_company_name_match(verification_service, mock_products_repo):
     """Test product search with company name match.
-    
+
     Verifies that company name matches are properly scored and identified.
     """
     # Given
@@ -115,7 +115,7 @@ async def test_search_and_rank_products_company_name_match(verification_service,
 @pytest.mark.asyncio
 async def test_search_and_rank_products_no_match(verification_service, mock_products_repo):
     """Test product search with no matching results.
-    
+
     Verifies that empty results are handled correctly.
     """
     # Given

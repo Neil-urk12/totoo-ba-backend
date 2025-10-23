@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 class FoodIndustryBase(BaseModel):
     """Base schema for food industry establishments with all common fields.
-    
+
     Attributes:
         license_number: Unique license identifier for the establishment.
         name_of_establishment: Name of the food industry establishment.
@@ -33,7 +33,7 @@ class FoodIndustryBase(BaseModel):
 
 class FoodIndustryCreate(FoodIndustryBase):
     """Schema for creating a new food industry establishment record.
-    
+
     Inherits all fields from FoodIndustryBase.
     """
     pass
@@ -41,9 +41,9 @@ class FoodIndustryCreate(FoodIndustryBase):
 
 class FoodIndustryUpdate(BaseModel):
     """Schema for updating an existing food industry establishment record.
-    
+
     All fields are optional to allow partial updates.
-    
+
     Attributes:
         name_of_establishment: Name of the food industry establishment.
         owner: Owner of the establishment.
@@ -64,7 +64,7 @@ class FoodIndustryUpdate(BaseModel):
 
 class FoodIndustryResponse(FoodIndustryBase):
     """Schema for food industry establishment API responses.
-    
+
     Inherits all fields from FoodIndustryBase and enables ORM mode
     for automatic conversion from SQLAlchemy models.
     """
