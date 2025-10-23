@@ -1,8 +1,11 @@
-import pytest
 from unittest.mock import AsyncMock, Mock
-from app.services.product_verification_service import ProductVerificationService
+
+import pytest
+
 from app.models.drug_products import DrugProducts
 from app.models.food_products import FoodProducts
+from app.services.product_verification_service import ProductVerificationService
+
 
 @pytest.fixture
 def mock_products_repo():
@@ -51,7 +54,7 @@ async def test_search_and_rank_products_partial_match(verification_service, mock
     )
     mock_products_repo.fuzzy_search_by_product_info.return_value = [drug_product]
 
-    # When 
+    # When
     results = await verification_service.search_and_rank_products(product_info)
 
     # Then
@@ -85,7 +88,7 @@ async def test_search_and_rank_products_no_match(verification_service, mock_prod
     product_info = {"brand_name": "Unknown"}
     mock_products_repo.fuzzy_search_by_product_info.return_value = []
 
-    # When 
+    # When
     results = await verification_service.search_and_rank_products(product_info)
 
     # Then
