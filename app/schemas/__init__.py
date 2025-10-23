@@ -1,3 +1,8 @@
+"""Pydantic schemas for request/response validation.
+
+This module exports all Pydantic schema classes used for API request
+validation and response serialization.
+"""
 from .cosmetic_industry import (
     CosmeticIndustryBase,
     CosmeticIndustryCreate,

@@ -1,4 +1,9 @@
 # extractor_to_db_food_products.py
+"""Food products data extractor and database upserter.
+
+Extracts food product data from HTML tables and upserts it into the
+PostgreSQL database with retry logic and error handling.
+"""
 import asyncio
 import os
 import re

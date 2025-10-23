@@ -4,11 +4,47 @@ AI RAG Product Checker is a FastAPI-based service designed to verify FDA Philipp
 
 ## Features
 
-- **ID-based Verification**: Check products by registration numbers, license numbers, or tracking numbers
-- **AI Image Verification**: Upload product images for AI-powered extraction and verification using Google's Gemini
-- **Fuzzy Matching**: Intelligent matching with multiple scoring algorithms
-- **Multi-category Support**: Handles drugs, food, medical devices, cosmetics, and establishments
-- **RESTful API**: Clean API endpoints with proper error handling and documentation
+- **ID-based Verification**: Check products by registration numbers, license numbers, or tracking numbers.
+- **AI Image Verification**: Upload product images for AI-powered extraction and verification using Google's Gemini.
+- **Fuzzy Matching**: Intelligent matching with multiple scoring algorithms.
+- **Multi-category Support**: Handles drugs, food, medical devices, cosmetics, and establishments.
+- **RESTful API**: Clean API endpoints with proper error handling and documentation.
+- **Hybrid OCR**: A multi-layered OCR approach using Tesseract, Groq, and Gemini for fast and accurate text extraction.
+
+## Project Structure
+
+```
+├── app/
+│   ├── api/
+│   │   ├── deps.py
+│   │   ├── products.py
+│   │   └── repository/
+│   │       ├── database_repository.py
+│   │       └── products_repository.py
+│   ├── core/
+│   │   ├── config.py
+│   │   ├── database.py
+│   │   └── logging.py
+│   ├── models/
+│   ├── schemas/
+│   ├── services/
+│   │   ├── ocr_service.py
+│   │   ├── product_verification_service.py
+│   │   └── upsert_extractors/
+│   └── utils/
+├── bruno_api_testing/
+├── .env.example
+├── README.md
+└── requirements.txt
+```
+
+- **app/api**: API endpoints and dependency injection.
+- **app/core**: Core application settings, database configuration, and logging.
+- **app/models**: SQLAlchemy database models.
+- **app/schemas**: Pydantic schemas for data validation and serialization.
+- **app/services**: Business logic, including product verification and OCR services.
+- **app/utils**: Helper functions.
+- **bruno_api_testing**: API tests using Bruno.
 
 ## Prerequisites
 
@@ -19,24 +55,24 @@ AI RAG Product Checker is a FastAPI-based service designed to verify FDA Philipp
 
 ## Installation
 
-1. Clone the repository:
+1. **Clone the repository:**
    ```bash
    git clone <repository-url>
    cd <repository-name>
    ```
 
-2. Create a virtual environment:
+2. **Create a virtual environment:**
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. Install dependencies:
+3. **Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Create a `.env` file by copying the example:
+4. **Create a `.env` file by copying the example:**
    ```bash
    cp .env.example .env
    ```
@@ -92,8 +128,8 @@ BACKGROUND_TASK_TIMEOUT=300
 # Logging Configuration
 LOG_LEVEL=INFO
 
-# Gemini AI Configuration
-GEMINI_API_KEY=your-gemini-api-key-here
+# Groq AI Configuration
+GROQ_API_KEY=your-groq-api-key-here
 ```
 
 ### Database Setup
@@ -172,7 +208,7 @@ The API is documented using FastAPI's built-in documentation. After starting the
 
 1. **Database Connection Issues**: Ensure PostgreSQL is running and your `DATABASE_URL` is correct.
 2. **Dependency Issues**: Make sure you're using the virtual environment and have installed all requirements.
-3. **AI Service Issues**: Verify your `GEMINI_API_KEY` is set correctly and you have internet access to the Google services.
+3. **AI Service Issues**: Verify your `GROQ_API_KEY` is set correctly and you have internet access to the Groq services.
 
 ### Error Codes
 
@@ -199,5 +235,5 @@ This project is licensed under the [MIT License](LICENSE).
 
 - FastAPI for the excellent web framework
 - SQLAlchemy for the ORM
-- Google's Gemini for AI capabilities
+- Groq's Llama models for AI capabilities
 - All contributors to the open-source libraries used in this project

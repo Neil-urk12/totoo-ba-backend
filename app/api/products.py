@@ -1,7 +1,15 @@
+"""Product verification API endpoints.
+
+Provides REST API endpoints for verifying products using:
+- Product ID lookup (registration numbers, license numbers)
+- Image-based verification using Groq AI vision models
+- Hybrid OCR verification using Tesseract + Groq
+"""
 import json
 import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from groq import Groq
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -15,34 +23,41 @@ router = APIRouter(prefix="/products")
 
 # Define request and response models
 class ProductVerificationResponse(BaseModel):
-    """Response model for product verification"""
+    """Response model for product verification.
+
+    Attributes:
+        product_id: The product identifier that was verified.
+        is_verified: Whether the product was successfully verified.
+        message: Human-readable verification message.
+        details: Additional verification details and metadata.
+    """
 
     product_id: str
     is_verified: bool
     message: str
     details: dict | None = None
 
-
-# Initialize Gemini client
 try:
-    from google import genai
-    from google.genai import types
-
-    GEMINI_AVAILABLE = True
-    api_key = os.getenv("GEMINI_API_KEY")
-    if api_key:
-        client = genai.Client(api_key=api_key)
-    else:
-        GEMINI_AVAILABLE = False
-        client = None
-except ImportError:
-    GEMINI_AVAILABLE = False
-    client = None
+    GROQ_AVAILABLE = bool(os.getenv("GROQ_API_KEY"))
+    groq_client = Groq(api_key=os.getenv("GROQ_API_KEY")) if GROQ_AVAILABLE else None
+except Exception:
+    GROQ_AVAILABLE = False
+    groq_client = None
 
 
-# Pydantic models for structured Gemini output
+# Pydantic models for structured Groq output
 class ExtractedFields(BaseModel):
-    """Structured fields extracted from product image"""
+    """Structured fields extracted from product image.
+
+    Attributes:
+        registration_number: FDA Philippines registration number.
+        brand_name: Brand name of the product.
+        product_description: Product description, type, or flavor.
+        manufacturer: Manufacturer or distributor name.
+        expiry_date: Expiration or best before date.
+        batch_number: Batch or lot number.
+        net_weight: Net weight or volume.
+    """
 
     registration_number: str | None = Field(
         None,
@@ -75,7 +90,14 @@ class ExtractedFields(BaseModel):
 
 
 class VerificationResult(BaseModel):
-    """AI verification result with structured output"""
+    """AI verification result with structured output.
+
+    Attributes:
+        matched_product_index: Index of matched product from database (null if no match).
+        confidence: Confidence score from 0-100.
+        extracted_fields: Structured fields extracted from the image.
+        reasoning: Explanation of matching decision and confidence level.
+    """
 
     matched_product_index: int | None = Field(
         None, description="Index of matched product from database (null if no match)"
@@ -88,7 +110,16 @@ class VerificationResult(BaseModel):
 
 
 class ImageVerificationResponse(BaseModel):
-    """Response for image-based verification"""
+    """Response for image-based verification.
+
+    Attributes:
+        verification_status: Status of verification ('verified', 'uncertain', 'not_found').
+        confidence: Confidence score from 0-100.
+        matched_product: Matched product details if found.
+        extracted_fields: Fields extracted from the image.
+        ai_reasoning: AI explanation of the verification decision.
+        alternative_matches: List of alternative potential matches.
+    """
 
     verification_status: str  # 'verified', 'uncertain', 'not_found'
     confidence: int
@@ -111,9 +142,16 @@ async def verify_product(
         get_product_verification_service
     ),
 ):
-    """
-    Verify a product using its ID.
-    This endpoint checks if a product is legitimate and verified in our system.
+    """Verify a product using its ID.
+
+    This endpoint checks if a product is legitimate and verified in the FDA database.
+
+    Args:
+        product_id: Product identifier (registration number, license number, or tracking number).
+        verification_service: Injected product verification service.
+
+    Returns:
+        ProductVerificationResponse: Verification result with product details.
 
     The product_id can be:
     - FDA registration number (BR-XXXX, DR-XXXXX, FR-XXXXX, etc.)
@@ -280,12 +318,12 @@ async def verify_product(
         )
 
 
-# Image verification endpoint using Gemini 2.5 Flash
+# Image verification endpoint using Groq Llama 4 Maverick
 @router.post(
     "/verify-image",
     response_model=ImageVerificationResponse,
     summary="Verify Product from Image",
-    description="Verifies a product by analyzing an uploaded image using Gemini 2.5 Flash AI",
+    description="Verifies a product by analyzing an uploaded image using Groq Llama 4 Maverick AI",
 )
 async def verify_product_image(
     image: UploadFile = File(...),
@@ -293,16 +331,25 @@ async def verify_product_image(
         get_product_verification_service
     ),
 ):
-    """
-    Verify a product by analyzing an uploaded image.
-    Uses Gemini 2.5 Flash to extract text and match against FDA database.
+    """Verify a product by analyzing an uploaded image.
 
-    No OCR preprocessing required - Gemini handles vision understanding directly.
+    Uses Groq Llama 4 Maverick to extract text and match against FDA database.
+    No OCR preprocessing required - Groq handles vision understanding directly.
+
+    Args:
+        image: Uploaded image file (max 5MB, JPEG/PNG/GIF/WebP).
+        verification_service: Injected product verification service.
+
+    Returns:
+        ImageVerificationResponse: Verification result with extracted fields and matches.
+
+    Raises:
+        HTTPException: If image is invalid, too large, or processing fails.
     """
     logger.info(f"Image verification request: filename={image.filename}, type={image.content_type}")
 
-    if not GEMINI_AVAILABLE or not client:
-        logger.error("Gemini AI service unavailable")
+    if not GROQ_AVAILABLE or not groq_client:
+        logger.error("Groq AI service unavailable")
         raise HTTPException(
             status_code=500,
             detail="AI verification service temporarily unavailable. Please try again later.",
@@ -340,8 +387,8 @@ async def verify_product_image(
                 detail="File type mismatch. The uploaded file does not match the declared content type.",
             )
 
-        # Step 1: Extract structured data directly from image using Gemini
-        logger.info("Extracting fields from image using Gemini")
+        # Step 1: Extract structured data directly from image using Groq
+        logger.info("Extracting fields from image using Groq Llama 4 Maverick")
         extracted_data = await extract_fields_from_image(
             image_bytes, image.content_type
         )
@@ -362,7 +409,7 @@ async def verify_product_image(
         logger.info(f"Found {len(fuzzy_results)} potential matches from database")
 
         # Step 3: AI-assisted intelligent matching
-        logger.info("Running AI-assisted matching with Gemini")
+        logger.info("Running AI-assisted matching with Groq Llama 4 Maverick")
         ai_verification = await ai_assisted_verification(
             extracted_fields=search_dict,
             raw_text=extracted_data.get("raw_text", ""),
@@ -454,8 +501,8 @@ def convert_extracted_fields_to_search_dict(extracted_fields: dict) -> dict:
 
 async def extract_fields_from_image(image_bytes: bytes, mime_type: str) -> dict:
     """
-    Extract structured fields directly from product image using Gemini 2.5 Flash.
-    No OCR preprocessing - Gemini handles vision understanding natively.
+    Extract structured fields directly from product image using Groq Llama 4 Maverick.
+    No OCR preprocessing - Groq handles vision understanding natively.
     """
 
     prompt = """You are an expert FDA Philippines product verification assistant.
@@ -488,33 +535,63 @@ IMPORTANT EXTRACTION RULES:
 Also provide the complete raw text visible in the image for fallback matching."""
 
     try:
-        # Create image part from bytes
-        image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+        # Convert image to base64 for Groq
+        import base64
+        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        image_url = f"data:{mime_type};base64,{image_base64}"
 
         # Generate structured content
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[image_part, prompt],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=ExtractedFields,
-                temperature=0.1,
-            ),
+        completion = groq_client.chat.completions.create(
+            model="meta-llama/llama-4-maverick-17b-128e-instruct",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": image_url}}
+                    ]
+                }
+            ],
+            temperature=0.1,
+            max_tokens=1000,
+            response_format={"type": "json_object"}
         )
 
-        extracted_fields: ExtractedFields = response.parsed
+        # Parse JSON response
+        result_text = completion.choices[0].message.content
+        parsed = json.loads(result_text)
+
+        extracted_fields = ExtractedFields(
+            registration_number=parsed.get("registration_number"),
+            brand_name=parsed.get("brand_name"),
+            product_description=parsed.get("product_description"),
+            manufacturer=parsed.get("manufacturer"),
+            expiry_date=parsed.get("expiry_date"),
+            batch_number=parsed.get("batch_number"),
+            net_weight=parsed.get("net_weight"),
+        )
 
         # Also get raw text for additional context
-        raw_text_prompt = "Extract all visible text from this image as plain text, preserving layout where possible."
-        raw_response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[image_part, raw_text_prompt],
-            config=types.GenerateContentConfig(temperature=0.1),
+        raw_text_completion = groq_client.chat.completions.create(
+            model="meta-llama/llama-4-maverick-17b-128e-instruct",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Extract all visible text from this image as plain text, preserving layout where possible."},
+                        {"type": "image_url", "image_url": {"url": image_url}}
+                    ]
+                }
+            ],
+            temperature=0.1,
+            max_tokens=1000,
         )
+
+        raw_text = raw_text_completion.choices[0].message.content
 
         return {
             "extracted_fields": extracted_fields.model_dump(),
-            "raw_text": raw_response.text,
+            "raw_text": raw_text,
         }
 
     except Exception as e:
@@ -528,7 +605,7 @@ async def ai_assisted_verification(
     extracted_fields: dict, raw_text: str, fuzzy_results: dict
 ) -> dict:
     """
-    Use Gemini 2.5 Flash for intelligent matching with improved fuzzy tolerance.
+    Use Groq Llama 4 Maverick for intelligent matching with improved fuzzy tolerance.
     """
 
     alternatives_text = "No potential matches found in database."
@@ -581,23 +658,23 @@ DECISION PRIORITY:
 Provide structured output with your decision and clear reasoning."""
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=VerificationResult,
-                temperature=0.3,  # Slightly higher for flexible matching
-            ),
+        completion = groq_client.chat.completions.create(
+            model="meta-llama/llama-4-maverick-17b-128e-instruct",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,  # Slightly higher for flexible matching
+            max_tokens=1000,
+            response_format={"type": "json_object"}
         )
 
-        result: VerificationResult = response.parsed
+        # Parse JSON response
+        result_text = completion.choices[0].message.content
+        parsed = json.loads(result_text)
 
         return {
-            "matched_product_index": result.matched_product_index,
-            "confidence": result.confidence,
-            "extracted_fields": result.extracted_fields.model_dump(),
-            "reasoning": result.reasoning,
+            "matched_product_index": parsed.get("matched_product_index"),
+            "confidence": parsed.get("confidence", 0),
+            "extracted_fields": parsed.get("extracted_fields", extracted_fields),
+            "reasoning": parsed.get("reasoning", "No reasoning provided"),
         }
 
     except Exception:
@@ -663,7 +740,11 @@ def fast_fuzzy_match(extracted_fields: dict, fuzzy_results: list[dict]) -> dict:
 def validate_image_content(file_bytes: bytes, mime_type: str) -> bool:
     """
     Validate that the file content matches the expected image type using magic numbers.
+    Handles common issues with MIME type formatting and multipart boundaries.
     """
+    # Normalize MIME type: strip whitespace and convert to lowercase
+    normalized_mime_type = mime_type.strip().lower()
+
     # Define magic numbers for common image formats
     magic_numbers = {
         "image/jpeg": bytes([0xFF, 0xD8, 0xFF]),
@@ -672,16 +753,52 @@ def validate_image_content(file_bytes: bytes, mime_type: str) -> bool:
         "image/webp": bytes([0x52, 0x49, 0x46, 0x46]),  # First 4 bytes of WebP files
     }
 
-    if mime_type not in magic_numbers:
+    if normalized_mime_type not in magic_numbers:
+        logger.warning(f"Unsupported MIME type for validation: '{mime_type}' (normalized: '{normalized_mime_type}')")
         return False
 
-    expected_header = magic_numbers[mime_type]
-    return file_bytes.startswith(expected_header)
+    expected_header = magic_numbers[normalized_mime_type]
+
+    # Check if file is large enough
+    if len(file_bytes) < len(expected_header):
+        logger.warning(f"File too small for validation: {len(file_bytes)} bytes, need {len(expected_header)} bytes")
+        return False
+
+    # Check for exact match at start
+    if file_bytes.startswith(expected_header):
+        return True
+
+    # Fallback: Search for magic number within first 512 bytes (handles multipart boundary issues)
+    search_window = file_bytes[:512]
+    magic_index = search_window.find(expected_header)
+
+    if magic_index != -1 and magic_index < 100:  # Magic number found within reasonable offset
+        logger.info(f"Found {normalized_mime_type} magic number at offset {magic_index} (likely multipart boundary issue)")
+        return True
+
+    # Log validation failure details for debugging
+    actual_header = file_bytes[:len(expected_header)]
+    logger.warning(
+        f"Image validation failed - MIME: '{mime_type}' (normalized: '{normalized_mime_type}'), "
+        f"expected: {expected_header.hex()}, got: {actual_header.hex()}"
+    )
+
+    return False
 
 
 # New hybrid OCR verification endpoint
 class HybridVerificationResponse(BaseModel):
-    """Response for hybrid OCR-based verification"""
+    """Response for hybrid OCR-based verification.
+
+    Attributes:
+        verification_status: Status of verification ('verified', 'uncertain', 'not_found').
+        confidence: Confidence score from 0-100.
+        matched_product: Matched product details if found.
+        extracted_fields: Fields extracted from the image.
+        ai_reasoning: AI explanation of the verification decision.
+        alternative_matches: List of alternative potential matches.
+        processing_metadata: Performance metrics and processing details.
+    """
 
     verification_status: str  # 'verified', 'uncertain', 'not_found'
     confidence: int
@@ -704,23 +821,32 @@ async def new_verify_product_image(
         get_product_verification_service
     ),
 ):
-    """
-    Verify a product by analyzing an uploaded image using hybrid OCR approach.
+    """Verify a product by analyzing an uploaded image using hybrid OCR approach.
 
     **Three-Layer Processing Pipeline:**
-    1. **Tesseract OCR**: Fast text extraction (~1s)
-    2. **Groq Llama 3.1**: Structured field extraction (~0.5s)
+    1. **Groq Llama 4 Scout Vision**: Fast image OCR extraction (~1s)
+    2. **Groq Llama 3.1 8B**: Structured field extraction (~0.5s)
     3. **Fast Fuzzy Matching**: Database matching without LLM (~0.1s)
-    4. **Gemini 2.5 Flash**: Only for OCR fallback if Tesseract fails
+    4. **Groq Llama 4 Maverick**: Only for OCR fallback if needed
 
     **Performance Benefits:**
-    - 10× faster than Gemini-only approach (~2s vs ~20s)
-    - 90% cost reduction (no Gemini for matching)
+    - 10× faster than previous approach (~2s vs ~20s)
+    - 90% cost reduction (Groq-only processing)
     - CPU-compatible using Tesseract
+
+    Args:
+        image: Uploaded image file (max 5MB, JPEG/PNG/GIF/WebP).
+        verification_service: Injected product verification service.
+
+    Returns:
+        HybridVerificationResponse: Verification result with processing metadata.
+
+    Raises:
+        HTTPException: If image is invalid, too large, or processing fails.
     """
     from app.services.ocr_service import get_ocr_service
 
-    logger.info(f"Hybrid OCR verification request: filename={image.filename}, type={image.content_type}")
+    logger.info("Hybrid OCR verification request received")
     ocr_service = get_ocr_service()
 
     # Validate image file
@@ -756,15 +882,15 @@ async def new_verify_product_image(
                 detail="File type mismatch. The uploaded file does not match the declared content type.",
             )
 
-        # Step 1-3: Extract with hybrid OCR pipeline (Tesseract + Groq + Gemini)
-        logger.info("Starting hybrid OCR extraction (Tesseract + Groq + Gemini)")
+        # Step 1-3: Extract with hybrid OCR pipeline (Tesseract + Groq + Groq fallback)
+        logger.info("Starting hybrid OCR extraction (Tesseract + Groq + Groq fallback)")
         extracted_data, processing_metadata = await ocr_service.extract_product_info(
             image_bytes, image.content_type
         )
         logger.info(
             f"OCR extraction complete: layers_used={processing_metadata.layers_used}, "
             f"total_time={processing_metadata.total_time:.2f}s, "
-            f"paddle_confidence={processing_metadata.paddle_confidence:.2f}"
+            f"groq_vision_confidence={processing_metadata.groq_vision_confidence:.2f}"
         )
 
         # Convert to search dict
@@ -792,7 +918,7 @@ async def new_verify_product_image(
 
         time.time() - db_search_start
 
-        # Step 5: AI-assisted intelligent matching (using existing Gemini logic)
+        # Step 5: AI-assisted intelligent matching (using existing Groq logic)
         extracted_fields_dict = {
             "registration_number": extracted_data.registration_number,
             "brand_name": extracted_data.brand_name,
@@ -803,7 +929,7 @@ async def new_verify_product_image(
             "net_weight": extracted_data.net_weight,
         }
 
-        # Use fast fuzzy matching instead of Gemini
+        # Use fast fuzzy matching instead of additional LLM calls
         ai_verify_start = time.time()
 
         # Simple rule-based matching using existing data
@@ -830,13 +956,13 @@ async def new_verify_product_image(
 
         # Build processing metadata for response
         metadata_dict = {
-            "paddle_ocr_time_ms": round(processing_metadata.paddle_time * 1000, 2),
-            "groq_time_ms": round(processing_metadata.groq_time * 1000, 2),
-            "gemini_time_ms": round(processing_metadata.gemini_time * 1000, 2),
+            "groq_vision_time_ms": round(processing_metadata.groq_vision_time * 1000, 2),
+            "groq_llama31_time_ms": round(processing_metadata.groq_llama31_time * 1000, 2),
+            "groq_fallback_time_ms": round(processing_metadata.groq_fallback_time * 1000, 2),
             "total_time_ms": round(processing_metadata.total_time * 1000, 2),
             "layers_used": processing_metadata.layers_used,
-            "paddle_confidence": round(processing_metadata.paddle_confidence, 2),
-            "gemini_used": processing_metadata.gemini_used,
+            "groq_vision_confidence": round(processing_metadata.groq_vision_confidence, 2),
+            "groq_fallback_used": processing_metadata.groq_fallback_used,
         }
 
         endpoint_total_time = time_module.time() - endpoint_start

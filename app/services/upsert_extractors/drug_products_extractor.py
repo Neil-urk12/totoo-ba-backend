@@ -1,4 +1,9 @@
 # extractor_to_db.py
+"""Drug products data extractor and database upserter.
+
+Extracts drug product data from HTML tables and upserts it into the
+PostgreSQL database using SQLAlchemy async operations.
+"""
 import asyncio
 from pathlib import Path
 from typing import Any
