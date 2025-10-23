@@ -1,5 +1,5 @@
 """
-Hybrid OCR Service with Groq Vision + Cerebras LLM + Groq Llama 4 Maverick Fallback
+Hybrid OCR Service with Groq Vision + Groq Llama 3.1 + Groq Llama 4 Maverick Fallback
 Implements a three-layer approach for efficient and accurate text extraction from product images.
 """
 
@@ -11,18 +11,6 @@ from typing import Any
 
 from groq import Groq
 from loguru import logger
-
-# Import Cerebras SDK
-try:
-    from cerebras.cloud.sdk import Cerebras
-    CEREBRAS_AVAILABLE = bool(os.getenv("CEREBRAS_API_KEY"))
-    cerebras_client = Cerebras(api_key=os.getenv("CEREBRAS_API_KEY")) if CEREBRAS_AVAILABLE else None
-except ImportError:
-    CEREBRAS_AVAILABLE = False
-    cerebras_client = None
-except Exception:
-    CEREBRAS_AVAILABLE = False
-    cerebras_client = None
 
 # Initialize services
 # Using Tesseract OCR for CPU compatibility
@@ -82,7 +70,7 @@ class ProcessingMetadata:
     """Metadata about the processing pipeline"""
 
     groq_vision_time: float = 0.0
-    cerebras_time: float = 0.0
+    groq_llama31_time: float = 0.0
     groq_fallback_time: float = 0.0
     total_time: float = 0.0
     layers_used: list[str] = None
@@ -96,10 +84,10 @@ class ProcessingMetadata:
 
 class HybridOCRService:
     """
-    Hybrid OCR service implementing Groq Vision + Cerebras LLM + Groq Llama 4 Maverick fallback strategy.
+    Hybrid OCR service implementing Groq Vision + Groq Llama 3.1 + Groq Llama 4 Maverick fallback strategy.
     Uses a three-layer approach:
     1. Groq Llama 4 Scout Vision for image OCR
-    2. Cerebras Llama for structured field extraction
+    2. Groq Llama 3.1 8B for structured field extraction
     3. Groq Llama 4 Maverick 17b 128e as fallback for low-confidence results
     """
 
@@ -381,79 +369,6 @@ Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
             logger.error(f"Groq Llama 3.1 8B extraction failed: {str(e)}")
             raise RuntimeError(f"Groq Llama 3.1 8B extraction failed: {e}") from e
 
-    # COMMENTED OUT - Cerebras extraction method (for latency comparison)
-    async def _extract_with_cerebras(
-        self, raw_text: str, confidence_score: float
-    ) -> ExtractedData:
-        """
-        Use Cerebras Llama for structured field extraction.
-
-        Args:
-            raw_text: Raw text from Groq vision OCR
-            confidence_score: Overall confidence from vision OCR
-
-        Returns:
-            Structured extracted data
-        """
-        logger.debug(f"Starting Cerebras extraction with {len(raw_text)} chars of text")
-        if not CEREBRAS_AVAILABLE or not cerebras_client:
-            logger.error("Cerebras API key not configured")
-            raise RuntimeError("Cerebras API is not available")
-
-        prompt = f"""You are an FDA Philippines product information extractor.
-
-Extract the following fields from the product text below. Be precise and extract ONLY what you see.
-
-TEXT (OCR Confidence: {confidence_score:.0%}):
-{raw_text}
-
-EXTRACTION RULES:
-1. registration_number: FDA registration number (BR-XXXX, DR-XXXXX, FR-XXXXX, etc.)
-2. brand_name: PRIMARY brand name only (e.g., "C2" not "C2 COOL & CLEAN")
-3. product_description: Product type, flavor, or description
-4. manufacturer: Company or manufacturer name
-5. expiry_date: Expiration or best before date
-6. batch_number: Batch, lot, or production code
-7. net_weight: Net weight or volume
-
-Return ONLY a valid JSON object with these exact field names. Use null for fields not found.
-Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
-
-        try:
-            completion = cerebras_client.chat.completions.create(
-                model="llama3.1-8b",  # Using Cerebras Llama 3.1 8B model
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=500,
-            )
-
-            # Parse JSON response
-            import json
-
-            result_text = completion.choices[0].message.content
-            parsed = json.loads(result_text)
-
-            extracted = ExtractedData(
-                registration_number=parsed.get("registration_number"),
-                brand_name=parsed.get("brand_name"),
-                product_description=parsed.get("product_description"),
-                manufacturer=parsed.get("manufacturer"),
-                expiry_date=parsed.get("expiry_date"),
-                batch_number=parsed.get("batch_number"),
-                net_weight=parsed.get("net_weight"),
-            )
-
-            logger.info(
-                f"Cerebras extraction successful: "
-                f"reg_num={'✓' if extracted.registration_number else '✗'}, "
-                f"brand={'✓' if extracted.brand_name else '✗'}, "
-                f"product={'✓' if extracted.product_description else '✗'}"
-            )
-            return extracted
-
-        except Exception as e:
-            logger.error(f"Cerebras extraction failed: {str(e)}")
-            raise RuntimeError(f"Cerebras extraction failed: {e}") from e
 
     def _crop_low_confidence_regions(
         self, image_bytes: bytes, ocr_results: list[OCRResult]
@@ -669,31 +584,17 @@ Return as JSON with these exact field names."""
             groq_data = await self._extract_with_groq_llama31(
                 raw_text, confidence_report.average_confidence
             )
-            metadata.cerebras_time = time.time() - groq_start  # Keep same field for consistency
+            metadata.groq_llama31_time = time.time() - groq_start
             metadata.layers_used.append("Groq Llama 3.1 8B")
 
         except Exception as e:
             # If Groq fails, create empty data and force Groq fallback
             logger.warning(f"Groq extraction failed: {str(e)}. Will use Groq Llama 4 Maverick fallback.")
             groq_data = ExtractedData()
-            metadata.cerebras_time = time.time() - groq_start
+            metadata.groq_llama31_time = time.time() - groq_start
             confidence_report.needs_groq_fallback = True
             confidence_report.reason = "Groq extraction failed"
 
-        # COMMENTED OUT - Cerebras Layer 2 (for latency comparison)
-        # cerebras_start = time.time()
-        # try:
-        #     cerebras_data = await self._extract_with_cerebras(
-        #         raw_text, confidence_report.average_confidence
-        #     )
-        #     metadata.cerebras_time = time.time() - cerebras_start
-        #     metadata.layers_used.append("Cerebras Llama 3.1 8B")
-        # except Exception as e:
-        #     logger.warning(f"Cerebras extraction failed: {str(e)}. Will use Groq Llama 4 Maverick fallback.")
-        #     cerebras_data = ExtractedData()
-        #     metadata.cerebras_time = time.time() - cerebras_start
-        #     confidence_report.needs_groq_fallback = True
-        #     confidence_report.reason = "Cerebras extraction failed"
 
         # Layer 3: Groq Llama 4 Maverick fallback (if needed)
         groq_fallback_data = None

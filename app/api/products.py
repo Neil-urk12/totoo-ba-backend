@@ -957,7 +957,7 @@ async def new_verify_product_image(
         # Build processing metadata for response
         metadata_dict = {
             "groq_vision_time_ms": round(processing_metadata.groq_vision_time * 1000, 2),
-            "groq_llama31_time_ms": round(processing_metadata.cerebras_time * 1000, 2),  # Reusing cerebras_time field for consistency
+            "groq_llama31_time_ms": round(processing_metadata.groq_llama31_time * 1000, 2),
             "groq_fallback_time_ms": round(processing_metadata.groq_fallback_time * 1000, 2),
             "total_time_ms": round(processing_metadata.total_time * 1000, 2),
             "layers_used": processing_metadata.layers_used,

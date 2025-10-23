@@ -22,4 +22,3 @@ opencv-python-headless>=4.8.0
 numpy>=1.24.0
 loguru>=0.7.0
 ruff
-cerebras_cloud_sdk
