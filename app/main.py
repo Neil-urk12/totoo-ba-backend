@@ -8,6 +8,8 @@ Initializes the FastAPI application with:
 - Logging setup using Loguru
 - Health check endpoints
 """
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -19,37 +21,16 @@ from app.core.config import Settings, get_settings
 from app.core.database import Base, engine, test_connection_async
 from app.core.logging import setup_logging
 
-# Initialize settings
-settings = get_settings()
 
-# Configure logging with Loguru
-setup_logging(settings)
-
-# Initialize FastAPI with environment-specific config and ORJSONResponse
-app = FastAPI(default_response_class=ORJSONResponse, **settings.fastapi_kwargs)
-
-# CORS middleware with settings
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
-    allow_credentials=settings.cors_allow_credentials,
-    allow_methods=settings.cors_allow_methods,
-    allow_headers=settings.cors_allow_headers,
-)
-
-# GZip compression middleware for response size optimization
-app.add_middleware(GZipMiddleware, minimum_size=1000)
-
-
-@app.on_event("startup")
-async def startup():
-    """Initialize database on application startup.
-
-    Performs the following initialization tasks:
-    - Creates database tables if they don't exist
-    - Tests database connectivity
-    - Logs startup information
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage FastAPI application lifespan.
+    
+    Handles startup and shutdown events:
+    - Startup: Creates database tables, tests connection
+    - Shutdown: Cleanup resources (if needed)
     """
+    # Startup
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Environment: {settings.environment}")
 
@@ -69,9 +50,37 @@ async def startup():
         logger.success("Database connection established")
     else:
         logger.error("Failed to connect to database")
+    
+    yield
+    
+    # Shutdown (add cleanup code here if needed)
+    logger.info(f"Shutting down {settings.app_name}")
 
 
-app.include_router(products_router, prefix=settings.api_prefix)
+# Initialize settings
+settings = get_settings()
+
+# Configure logging with Loguru
+setup_logging(settings)
+
+# Initialize FastAPI with environment-specific config and ORJSONResponse
+app = FastAPI(
+    default_response_class=ORJSONResponse,
+    lifespan=lifespan,
+    **settings.fastapi_kwargs
+)
+
+# CORS middleware with settings
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=settings.cors_allow_credentials,
+    allow_methods=settings.cors_allow_methods,
+    allow_headers=settings.cors_allow_headers,
+)
+
+# GZip compression middleware for response size optimization
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.get("/")
