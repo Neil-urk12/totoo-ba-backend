@@ -1,5 +1,5 @@
 """
-Hybrid OCR Service with Groq Vision + Groq Llama 3.1 + Groq Llama 4 Maverick Fallback
+Hybrid Vision Service with Groq Vision + Groq Llama 3.1 + Groq Llama 4 Maverick Fallback
 Implements a three-layer approach for efficient and accurate text extraction from product images.
 """
 
@@ -13,9 +13,9 @@ from groq import Groq
 from loguru import logger
 
 # Initialize services
-# Using Tesseract OCR for CPU compatibility
 
-# Gemini imports removed - using Groq-only approach
+
+
 
 try:
     GROQ_AVAILABLE = bool(os.getenv("GROQ_API_KEY"))
@@ -24,7 +24,7 @@ except Exception:
     GROQ_AVAILABLE = False
     groq_client = None
 
-# Gemini client removed - using Groq-only approach
+
 
 
 # Simple in-memory cache for Groq fallback results
@@ -32,8 +32,8 @@ _groq_fallback_cache: dict[str, dict] = {}
 
 
 @dataclass
-class OCRResult:
-    """Result from OCR extraction"""
+class VisionResult:
+    """Result from vision extraction"""
 
     text: str
     bbox: list[list[float]]  # Bounding box coordinates
@@ -47,7 +47,7 @@ class ConfidenceReport:
 
     average_confidence: float
     critical_fields_confidence: dict[str, float]
-    low_confidence_regions: list[OCRResult]
+    low_confidence_regions: list[VisionResult]
     needs_groq_fallback: bool
     reason: str
 
@@ -82,33 +82,33 @@ class ProcessingMetadata:
             self.layers_used = []
 
 
-class HybridOCRService:
+class HybridVisionService:
     """
-    Hybrid OCR service implementing Groq Vision + Groq Llama 3.1 + Groq Llama 4 Maverick fallback strategy.
+    Hybrid vision service implementing Groq Vision + Groq Llama 3.1 + Groq Llama 4 Maverick fallback strategy.
     Uses a three-layer approach:
-    1. Groq Llama 4 Scout Vision for image OCR
+    1. Groq Llama 4 Scout Vision for image text extraction
     2. Groq Llama 3.1 8B for structured field extraction
     3. Groq Llama 4 Maverick 17b 128e as fallback for low-confidence results
     """
 
     def __init__(self):
-        """Initialize the hybrid OCR service"""
+        """Initialize the hybrid vision service"""
         pass
 
 
 
-    async def _extract_with_groq_vision(self, image_bytes: bytes, mime_type: str) -> list[OCRResult]:
+    async def _extract_with_groq_vision(self, image_bytes: bytes, mime_type: str) -> list[VisionResult]:
         """
-        Extract text using Groq Llama 4 Scout vision model for OCR.
+        Extract text using Groq Llama 4 Scout vision model.
 
         Args:
             image_bytes: Image bytes to process
             mime_type: Image MIME type
 
         Returns:
-            List of OCR results with simulated bounding boxes and confidence
+            List of vision results with simulated bounding boxes and confidence
         """
-        logger.debug("Starting Groq Llama 4 Scout vision OCR extraction")
+        logger.debug("Starting Groq Llama 4 Scout vision extraction")
 
         if not GROQ_AVAILABLE or not groq_client:
             logger.error("Groq API key not configured")
@@ -119,7 +119,7 @@ class HybridOCRService:
         image_base64 = base64.b64encode(image_bytes).decode('utf-8')
         image_url = f"data:{mime_type};base64,{image_base64}"
 
-        prompt = """You are an expert OCR system. Extract ALL visible text from this product image.
+        prompt = """You are an expert vision system. Extract ALL visible text from this product image.
 
 For each piece of text you find, provide:
 1. The exact text as you see it
@@ -186,7 +186,7 @@ Be thorough and extract even small or partially visible text."""
             # Extract items array from response
             extracted_items = response_data.get("items", [])
 
-            # Convert to OCRResult format
+            # Convert to VisionResult format
             ocr_results = []
             for _i, item in enumerate(extracted_items):
                 if isinstance(item, dict):
@@ -205,7 +205,7 @@ Be thorough and extract even small or partially visible text."""
 
                         is_low_confidence = confidence < 0.85
                         ocr_results.append(
-                            OCRResult(
+                            VisionResult(
                                 text=text,
                                 bbox=bbox,
                                 confidence=confidence,
@@ -216,52 +216,52 @@ Be thorough and extract even small or partially visible text."""
             if ocr_results:
                 avg_confidence = sum(r.confidence for r in ocr_results) / len(ocr_results)
                 logger.info(
-                    f"Groq vision OCR extracted {len(ocr_results)} text blocks, "
+                    f"Groq vision extraction extracted {len(ocr_results)} text blocks, "
                     f"avg_confidence={avg_confidence:.2f}"
                 )
             else:
-                logger.warning("Groq vision OCR found no text in image")
+                logger.warning("Groq vision extraction found no text in image")
 
             return ocr_results
 
         except json.JSONDecodeError as e:
-            logger.error(f"Groq vision OCR returned invalid JSON: {str(e)}")
-            raise RuntimeError(f"Groq vision OCR returned invalid JSON: {e}") from e
+            logger.error(f"Groq vision extraction returned invalid JSON: {str(e)}")
+            raise RuntimeError(f"Groq vision extraction returned invalid JSON: {e}") from e
         except KeyError as e:
-            logger.error(f"Groq vision OCR response missing expected field: {str(e)}")
-            raise RuntimeError(f"Groq vision OCR response missing expected field: {e}") from e
+            logger.error(f"Groq vision extraction response missing expected field: {str(e)}")
+            raise RuntimeError(f"Groq vision extraction response missing expected field: {e}") from e
         except Exception as e:
-            logger.error(f"Groq vision OCR extraction failed: {str(e)}")
-            raise RuntimeError(f"Groq vision OCR extraction failed: {e}") from e
+            logger.error(f"Groq vision extraction failed: {str(e)}")
+            raise RuntimeError(f"Groq vision extraction failed: {e}") from e
 
-    def _analyze_confidence(self, ocr_results: list[OCRResult]) -> ConfidenceReport:
+    def _analyze_confidence(self, vision_results: list[VisionResult]) -> ConfidenceReport:
         """
         Analyze confidence scores and determine if Groq fallback is needed.
 
         Args:
-            ocr_results: Results from OCR extraction
+            vision_results: Results from vision extraction
 
         Returns:
             Confidence report with analysis
         """
-        if not ocr_results:
+        if not vision_results:
             return ConfidenceReport(
                 average_confidence=0.0,
                 critical_fields_confidence={},
                 low_confidence_regions=[],
                 needs_groq_fallback=True,
-                reason="No text detected by OCR",
+                reason="No text detected by vision model",
             )
 
         # Calculate average confidence
-        avg_conf = sum(r.confidence for r in ocr_results) / len(ocr_results)
+        avg_conf = sum(r.confidence for r in vision_results) / len(vision_results)
 
         # Identify low confidence regions
-        low_conf_regions = [r for r in ocr_results if r.is_low_confidence]
+        low_conf_regions = [r for r in vision_results if r.is_low_confidence]
 
         # Check for critical field patterns
         critical_fields = {}
-        for result in ocr_results:
+        for result in vision_results:
             text = result.text.upper()
             # Check for registration number patterns
             if any(pattern in text for pattern in ["BR-", "DR-", "FR-", "LTO-"]):
@@ -269,7 +269,7 @@ Be thorough and extract even small or partially visible text."""
 
         # Determine if Groq fallback is needed
         needs_groq_fallback = False
-        reason = "OCR confidence is sufficient"
+        reason = "Vision confidence is sufficient"
 
         if avg_conf < 0.75:
             needs_groq_fallback = True
@@ -277,9 +277,9 @@ Be thorough and extract even small or partially visible text."""
         elif critical_fields and any(c < 0.85 for c in critical_fields.values()):
             needs_groq_fallback = True
             reason = "Critical field confidence below threshold"
-        elif len(low_conf_regions) > len(ocr_results) * 0.4:
+        elif len(low_conf_regions) > len(vision_results) * 0.4:
             needs_groq_fallback = True
-            reason = f"Too many low confidence regions: {len(low_conf_regions)}/{len(ocr_results)}"
+            reason = f"Too many low confidence regions: {len(low_conf_regions)}/{len(vision_results)}"
 
         report = ConfidenceReport(
             average_confidence=avg_conf,
@@ -302,8 +302,8 @@ Be thorough and extract even small or partially visible text."""
         Use Groq Llama 3.1 8B for structured field extraction.
 
         Args:
-            raw_text: Raw text from Groq vision OCR
-            confidence_score: Overall confidence from vision OCR
+            raw_text: Raw text from Groq vision extraction
+            confidence_score: Overall confidence from vision extraction
 
         Returns:
             Structured extracted data
@@ -371,7 +371,7 @@ Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
 
 
     def _crop_low_confidence_regions(
-        self, image_bytes: bytes, ocr_results: list[OCRResult]
+        self, image_bytes: bytes, ocr_results: list[VisionResult]
     ) -> bytes:
         """
         Crop image to focus on low-confidence regions for Groq fallback.
@@ -396,7 +396,7 @@ Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
         Args:
             image_bytes: Image bytes (potentially cropped)
             mime_type: Image MIME type
-            raw_text: Raw text from Groq vision OCR for context
+            raw_text: Raw text from Groq vision extraction for context
 
         Returns:
             Structured extracted data from Groq Llama 4 Maverick
@@ -420,7 +420,7 @@ Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
 
         prompt = f"""You are an expert FDA Philippines product verification assistant.
 
-The initial Groq vision OCR detected this text (but with low confidence):
+The initial Groq vision extraction detected this text (but with low confidence):
 {raw_text[:500]}
 
 Analyze this product image carefully and extract ALL visible text and product information.
@@ -553,30 +553,30 @@ Return as JSON with these exact field names."""
         start_time = time.time()
 
 
-        # Layer 1: Groq Llama 4 Scout Vision OCR for text extraction
-        ocr_start = time.time()
+        # Layer 1: Groq Llama 4 Scout Vision for text extraction
+        vision_start = time.time()
         try:
-            ocr_results = await self._extract_with_groq_vision(image_bytes, mime_type)
-            raw_text = " ".join([r.text for r in ocr_results])
-            confidence_report = self._analyze_confidence(ocr_results)
+            vision_results = await self._extract_with_groq_vision(image_bytes, mime_type)
+            raw_text = " ".join([r.text for r in vision_results])
+            confidence_report = self._analyze_confidence(vision_results)
 
-            metadata.groq_vision_time = time.time() - ocr_start
+            metadata.groq_vision_time = time.time() - vision_start
             metadata.groq_vision_confidence = confidence_report.average_confidence
             metadata.layers_used.append("Groq Llama 4 Scout Vision")
 
 
         except Exception as e:
-            # Fallback to Groq Llama 4 Maverick if Groq vision OCR fails completely
-            logger.warning(f"Groq vision OCR failed: {str(e)}. Will use Groq Llama 4 Maverick fallback.")
+            # Fallback to Groq Llama 4 Maverick if Groq vision extraction fails completely
+            logger.warning(f"Groq vision extraction failed: {str(e)}. Will use Groq Llama 4 Maverick fallback.")
             raw_text = ""
             confidence_report = ConfidenceReport(
                 average_confidence=0.0,
                 critical_fields_confidence={},
                 low_confidence_regions=[],
                 needs_groq_fallback=True,
-                reason=f"Groq vision OCR failed: {e}",
+                reason=f"Groq vision extraction failed: {e}",
             )
-            metadata.groq_vision_time = time.time() - ocr_start
+            metadata.groq_vision_time = time.time() - vision_start
 
         # Layer 2: Groq Llama 3.1 8B for structured extraction (switched back for latency comparison)
         groq_start = time.time()
@@ -636,12 +636,12 @@ Return as JSON with these exact field names."""
 
 
 # Global service instance
-_ocr_service_instance: HybridOCRService | None = None
+_vision_service_instance: HybridVisionService | None = None
 
 
-def get_ocr_service() -> HybridOCRService:
-    """Get or create the global OCR service instance"""
-    global _ocr_service_instance
-    if _ocr_service_instance is None:
-        _ocr_service_instance = HybridOCRService()
-    return _ocr_service_instance
+def get_vision_service() -> HybridVisionService:
+    """Get or create the global vision service instance"""
+    global _vision_service_instance
+    if _vision_service_instance is None:
+        _vision_service_instance = HybridVisionService()
+    return _vision_service_instance

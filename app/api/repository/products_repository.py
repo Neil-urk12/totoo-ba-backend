@@ -213,7 +213,7 @@ class ProductsRepository(MultiTableRepository):
 
         This method uses PostgreSQL's full-text search capabilities with the
         pre-generated search_vector column and GIN index for optimal performance.
-        Falls back to trigram similarity matching for OCR typos.
+        Falls back to trigram similarity matching for text recognition errors.
 
         Args:
             session: AsyncSession for database operations
@@ -304,7 +304,7 @@ class ProductsRepository(MultiTableRepository):
 
         logger.info(f"Repository: drug_products FTS returned {len(results)} results")
 
-        # Fuzzy matching fallback for brand names (handles OCR typos like "Neozept" vs "Neozep")
+        # Fuzzy matching fallback for brand names (handles text recognition errors like "Neozept" vs "Neozep")
         # Always run when brand_name is provided to catch typos even if FTS found other matches
         if criteria.get("brand_name"):
             brand_name = criteria["brand_name"]
@@ -359,7 +359,7 @@ class ProductsRepository(MultiTableRepository):
 
         This method uses PostgreSQL's full-text search capabilities with the
         pre-generated search_vector column and GIN index for optimal performance.
-        Falls back to trigram similarity matching for OCR typos.
+        Falls back to trigram similarity matching for text recognition errors.
 
         Args:
             session: AsyncSession for database operations
@@ -450,7 +450,7 @@ class ProductsRepository(MultiTableRepository):
 
         logger.info(f"Repository: food_products FTS returned {len(results)} results")
 
-        # Fuzzy matching fallback for brand names (handles OCR typos)
+        # Fuzzy matching fallback for brand names (handles text recognition errors)
         # Always run when brand_name is provided to catch typos even if FTS found other matches
         if criteria.get("brand_name"):
             brand_name = criteria["brand_name"]

@@ -5,11 +5,11 @@ AI RAG Product Checker is a FastAPI-based service designed to verify FDA Philipp
 ## Features
 
 - **ID-based Verification**: Check products by registration numbers, license numbers, or tracking numbers.
-- **AI Image Verification**: Upload product images for AI-powered extraction and verification using Google's Gemini.
+- **AI Image Verification**: Upload product images for AI-powered extraction and verification using Groq.
 - **Fuzzy Matching**: Intelligent matching with multiple scoring algorithms.
 - **Multi-category Support**: Handles drugs, food, medical devices, cosmetics, and establishments.
 - **RESTful API**: Clean API endpoints with proper error handling and documentation.
-- **Hybrid OCR**: A multi-layered OCR approach using Tesseract, Groq, and Gemini for fast and accurate text extraction.
+- **AI Vision**: Advanced text extraction using Groq's vision models for fast and accurate results.
 - **High Performance**: Optimized with uvloop and httptools for 2-4x faster async I/O performance.
 
 ## Performance Optimizations
@@ -52,7 +52,7 @@ Typical performance improvements with uvloop + httptools:
 │   ├── models/
 │   ├── schemas/
 │   ├── services/
-│   │   ├── ocr_service.py
+│   │   ├── vision_service.py
 │   │   ├── product_verification_service.py
 │   │   └── upsert_extractors/
 │   └── utils/
@@ -66,7 +66,7 @@ Typical performance improvements with uvloop + httptools:
 - **app/core**: Core application settings, database configuration, and logging.
 - **app/models**: SQLAlchemy database models.
 - **app/schemas**: Pydantic schemas for data validation and serialization.
-- **app/services**: Business logic, including product verification and OCR services.
+- **app/services**: Business logic, including product verification and AI vision services.
 - **app/utils**: Helper functions.
 - **bruno_api_testing**: API tests using Bruno.
 

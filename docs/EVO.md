@@ -3,38 +3,38 @@
 ## Overview
 This document tracks the major architectural evolution of the FDA Philippines Product Verification System, particularly the transition from local OCR processing to cloud-native vision APIs.
 
-## Before this migration we were using just Gemini for everything which was very slow and had latency issuess
+## Before this migration we were using just Gemini for everything which was very slow and had latency issues
 
-## 🔄 Major Architecture Evolution: OCR Engine Migration
+## 🔄 Major Architecture Evolution: AI Vision Migration
 
 ### Timeline of Changes
 
 #### Phase 1: Original PaddleOCR Implementation (Initial)
-- **OCR Engine**: PaddleOCR with Chinese text support
+- **Vision Engine**: PaddleOCR with Chinese text support
 - **LLM**: Groq Llama 3.1-8B-instant  
 - **Fallback**: Gemini 2.5 Flash
 - **Dependencies**: Heavy (PaddleOCR, OpenCV, PIL)
 - **Deployment**: Complex (required OCR binaries)
 
 #### Phase 2: Tesseract Fallback (HEAD~5 to HEAD)
-- **OCR Engine**: Tesseract OCR (fallback due to PaddleOCR issues)
+- **Vision Engine**: Tesseract OCR (fallback due to PaddleOCR issues)
 - **LLM**: Groq Llama 3.1-8B-instant
 - **Fallback**: Gemini 2.5 Flash
 - **Dependencies**: Simplified but still local OCR
 - **Deployment**: Still required system OCR installation
 
-#### Phase 3: Cloud-Native Vision (Staged Changes - Current)
-- **OCR Engine**: Groq Vision API (Llama 4 Scout Vision)
+#### Phase 3: Cloud-Native Vision (Current Implementation)
+- **Vision Engine**: Groq Vision API (Llama 4 Scout Vision)
 - **LLM**: Groq Llama 3.1-8B-instant
 - **Fallback**: Groq Llama 4 Maverick 17b 128e
 - **Dependencies**: Minimal (API clients only)
-- **Deployment**: Cloud-native, no local OCR binaries
+- **Deployment**: Cloud-native, no local vision processing binaries
 
 ## 📊 Comparison Matrix
 
 | Aspect | Phase 1 (PaddleOCR) | Phase 2 (Tesseract) | Phase 3 (Groq Vision) |
 |--------|---------------------|---------------------|------------------------|
-| **OCR Accuracy** | Good for Asian text | Moderate | High (AI-powered) |
+| **Vision Accuracy** | Good for Asian text | Moderate | High (AI-powered) |
 | **Deployment Complexity** | Very High | High | Low |
 | **Dependencies** | Heavy | Moderate | Minimal |
 | **Processing Speed** | Fast (local) | Fast (local) | Network-dependent |
@@ -45,9 +45,9 @@ This document tracks the major architectural evolution of the FDA Philippines Pr
 ## 🎯 Strategic Benefits
 
 ### Performance Improvements
-- **OCR Accuracy**: AI-powered vision > traditional OCR for product images
+- **Vision Accuracy**: AI-powered vision > traditional OCR for product images
 - **Model Capability**: 17B parameter MOE model > 8B for complex extraction
-- **Search Flexibility**: OR logic handles partial OCR matches better
+- **Search Flexibility**: OR logic handles partial vision matches better
 
 ### Operational Benefits
 - **Simplified Deployment**: No OCR binaries to install or maintain
@@ -93,7 +93,7 @@ GROQ_API_KEY=your_groq_api_key
 ## 🔮 Future Evolution Path
 
 ### Immediate Next Steps (Unstaged Changes)
-- **Fuzzy Matching**: PostgreSQL trigram similarity for OCR typos
+- **Fuzzy Matching**: PostgreSQL trigram similarity for potential text recognition errors
 - **Advanced Scoring**: Context-aware product ranking
 - **Performance Optimization**: Reduced overlap thresholds for better matching
 
@@ -135,9 +135,9 @@ Improvement: ~15-20% better field extraction
 - **Cost Analysis**: API usage costs vs compute infrastructure costs
 
 ### Rollback Strategy
-1. **Quick Rollback**: Revert to HEAD~1 (Tesseract implementation)
+1. **Quick Rollback**: Revert to HEAD~1 (Tesseract implementation)  
 2. **Fallback Mode**: Increase Groq Llama 4 Maverick usage if Groq Vision issues
-3. **Hybrid Approach**: Implement local OCR as emergency fallback
+3. **Hybrid Approach**: Implement local vision processing as emergency fallback
 
 ---
 

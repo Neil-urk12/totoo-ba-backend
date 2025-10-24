@@ -3,7 +3,7 @@
 Provides REST API endpoints for verifying products using:
 - Product ID lookup (registration numbers, license numbers)
 - Image-based verification using Groq AI vision models
-- Hybrid OCR verification using Tesseract + Groq
+- Hybrid Vision verification using Groq
 """
 import os
 
@@ -296,7 +296,7 @@ def validate_image_content(file_bytes: bytes, mime_type: str) -> bool:
 
 # New hybrid OCR verification endpoint
 class HybridVerificationResponse(BaseModel):
-    """Response for hybrid OCR-based verification.
+    """Response for hybrid vision-based verification.
 
     Attributes:
         verification_status: Status of verification ('verified', 'uncertain', 'not_found').
@@ -320,8 +320,8 @@ class HybridVerificationResponse(BaseModel):
 @router.post(
     "/new-verify-image",
     response_model=HybridVerificationResponse,
-    summary="Verify Product from Image (Hybrid OCR)",
-    description="Verifies a product using hybrid approach: Tesseract OCR + Groq + Fast Matching",
+    summary="Verify Product from Image (Hybrid Vision)",
+    description="Verifies a product using hybrid approach: Groq + Fast Matching",
 )
 async def new_verify_product_image(
     image: UploadFile = File(...),
@@ -329,18 +329,17 @@ async def new_verify_product_image(
         get_product_verification_service
     ),
 ):
-    """Verify a product by analyzing an uploaded image using hybrid OCR approach.
+    """Verify a product by analyzing an uploaded image using hybrid Vision approach.
 
     **Three-Layer Processing Pipeline:**
-    1. **Groq Llama 4 Scout Vision**: Fast image OCR extraction (~1s)
+    1. **Groq Llama 4 Scout Vision**: Fast image Vision extraction (~1s)
     2. **Groq Llama 3.1 8B**: Structured field extraction (~0.5s)
     3. **Fast Fuzzy Matching**: Database matching without LLM (~0.1s)
-    4. **Groq Llama 4 Maverick**: Only for OCR fallback if needed
+    4. **Groq Llama 4 Maverick**: Only for Vision fallback if needed
 
     **Performance Benefits:**
     - 10× faster than previous approach (~2s vs ~20s)
     - 90% cost reduction (Groq-only processing)
-    - CPU-compatible using Tesseract
 
     Args:
         image: Uploaded image file (max 5MB, JPEG/PNG/GIF/WebP).
@@ -352,14 +351,14 @@ async def new_verify_product_image(
     Raises:
         HTTPException: If image is invalid, too large, or processing fails.
     """
-    from app.services.ocr_service import get_ocr_service
+    from app.services.vision_service import get_vision_service
 
-    logger.info("Hybrid OCR verification request received")
-    ocr_service = get_ocr_service()
+    logger.info("Hybrid Vision verification request received")
+    vision_service = get_vision_service()
 
     # Validate image file
     if not image.content_type or not image.content_type.startswith("image/"):
-        logger.warning(f"Invalid file type for hybrid OCR: {image.content_type}")
+        logger.warning(f"Invalid file type for hybrid Vision: {image.content_type}")
         raise HTTPException(
             status_code=400,
             detail=f"Invalid file type: {image.content_type}. Please upload an image file.",
@@ -390,13 +389,13 @@ async def new_verify_product_image(
                 detail="File type mismatch. The uploaded file does not match the declared content type.",
             )
 
-        # Step 1-3: Extract with hybrid OCR pipeline (Tesseract + Groq + Groq fallback)
-        logger.info("Starting hybrid OCR extraction (Tesseract + Groq + Groq fallback)")
-        extracted_data, processing_metadata = await ocr_service.extract_product_info(
+        # Step 1-3: Extract with hybrid vision pipeline (Groq Vision + Groq fallback)
+        logger.info("Starting hybrid vision extraction (Groq Vision + Groq fallback)")
+        extracted_data, processing_metadata = await vision_service.extract_product_info(
             image_bytes, image.content_type
         )
         logger.info(
-            f"OCR extraction complete: layers_used={processing_metadata.layers_used}, "
+            f"Vision extraction complete: layers_used={processing_metadata.layers_used}, "
             f"total_time={processing_metadata.total_time:.2f}s, "
             f"groq_vision_confidence={processing_metadata.groq_vision_confidence:.2f}"
         )
@@ -525,11 +524,11 @@ async def new_verify_product_image(
 
     except Exception as e:
         # Log the detailed error server-side for debugging
-        logger.error(f"Hybrid OCR verification failed: {str(e)}")
+        logger.error(f"Hybrid vision verification failed: {str(e)}")
         logger.exception("Full traceback:")
         raise HTTPException(
             status_code=500,
-            detail=f"Hybrid OCR verification failed: {str(e)}. Please try again.",
+            detail=f"Hybrid vision verification failed: {str(e)}. Please try again.",
         ) from e
     finally:
         await image.close()

@@ -1,5 +1,5 @@
 -- Enable PostgreSQL trigram extension for fuzzy matching
--- This enables similarity() and other trigram-based functions for handling OCR typos
+-- This enables similarity() and other trigram-based functions for handling text recognition errors
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
