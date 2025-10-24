@@ -242,18 +242,18 @@ Be thorough and extract even small or partially visible text."""
     def _clean_brand_name(self, brand_name: str) -> str:
         """
         Clean extracted brand name by removing common promotional and dosage text.
-        
+
         Args:
             brand_name: Raw extracted brand name
-            
+
         Returns:
             Cleaned brand name
         """
         if not brand_name:
             return brand_name
-            
+
         import re
-        
+
         # List of patterns to remove (case-insensitive)
         removal_patterns = [
             r'\b\d+\s*mg\b',  # Dosage: "500mg", "500 mg"
@@ -270,14 +270,14 @@ Be thorough and extract even small or partially visible text."""
             r'\bpack\b',
             r'^\d+\+\d+\b',  # "5+1"
         ]
-        
+
         cleaned = brand_name
         for pattern in removal_patterns:
             cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
-        
+
         # Remove extra whitespace
         cleaned = ' '.join(cleaned.split())
-        
+
         # If cleaning removed everything, return original
         if not cleaned or len(cleaned) < 2:
             # Try to extract just manufacturer + single word brand
@@ -286,10 +286,10 @@ Be thorough and extract even small or partially visible text."""
             if len(words) >= 2:
                 # Return last meaningful word that's likely the brand
                 for word in reversed(words):
-                    if len(word) > 2 and not word.lower() in ['inc', 'corp', 'co']:
+                    if len(word) > 2 and word.lower() not in ['inc', 'corp', 'co']:
                         cleaned = word
                         break
-        
+
         logger.debug(f"Brand name cleaned: '{brand_name}' → '{cleaned}'")
         return cleaned.strip()
 
@@ -634,7 +634,7 @@ Return as JSON with these exact field names. Set to null if not visible or uncle
             return groq_data
 
         # Merge: prefer non-null values, prioritize Groq fallback for critical fields
-        merged = ExtractedData(
+        return ExtractedData(
             registration_number=groq_fallback_data.registration_number
             or groq_data.registration_number,
             brand_name=groq_fallback_data.brand_name or groq_data.brand_name,
@@ -645,25 +645,23 @@ Return as JSON with these exact field names. Set to null if not visible or uncle
             batch_number=groq_fallback_data.batch_number or groq_data.batch_number,
             net_weight=groq_fallback_data.net_weight or groq_data.net_weight,
         )
-        
-        return merged
 
     def _extract_product_keywords(self, vision_results: list[VisionResult], brand_name: str | None) -> str | None:
         """
         Extract product description keywords from vision results when structured extraction fails.
-        
+
         This is a fallback to help identify product type when the LLM misses it.
-        
+
         Args:
             vision_results: Raw vision extraction results
             brand_name: Extracted brand name (to avoid including it in description)
-            
+
         Returns:
             Likely product description or None
         """
         if not vision_results:
             return None
-            
+
         # Common product type keywords that indicate product description
         product_keywords = [
             # Sauces
@@ -675,30 +673,30 @@ Return as JSON with these exact field names. Set to null if not visible or uncle
             # Food
             'chips', 'noodles', 'pasta', 'rice', 'oil',
         ]
-        
+
         # Extract text blocks that likely contain product description
         candidates = []
         for result in vision_results:
             text = result.text.strip()
             text_lower = text.lower()
-            
+
             # Skip if it's the brand name
             if brand_name and brand_name.lower() in text_lower:
                 continue
-                
+
             # Check if text contains product keywords
             for keyword in product_keywords:
                 if keyword in text_lower:
                     # Found a likely product description
                     candidates.append((text, result.confidence, len(text.split())))
                     break
-        
+
         if not candidates:
             return None
-            
+
         # Sort by confidence and word count (prefer longer, confident descriptions)
         candidates.sort(key=lambda x: (x[1], x[2]), reverse=True)
-        
+
         # Return the best candidate
         best_description = candidates[0][0]
         logger.debug(f"Extracted product keywords fallback: '{best_description}'")
@@ -785,7 +783,7 @@ Return as JSON with these exact field names. Set to null if not visible or uncle
 
         # Merge results
         final_data = self._merge_results(groq_data, groq_fallback_data)
-        
+
         # Smart fallback: If product_description is still missing, try to extract from vision results
         if not final_data.product_description and vision_results:
             logger.info("Product description missing, attempting keyword extraction from vision results")

@@ -16,7 +16,6 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import ORJSONResponse
 from loguru import logger
 
-from app.api.products import router as products_router
 from app.core.config import Settings, get_settings
 from app.core.database import Base, engine, test_connection_async
 from app.core.logging import setup_logging
@@ -25,7 +24,7 @@ from app.core.logging import setup_logging
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage FastAPI application lifespan.
-    
+
     Handles startup and shutdown events:
     - Startup: Creates database tables, tests connection
     - Shutdown: Cleanup resources (if needed)
@@ -50,9 +49,9 @@ async def lifespan(app: FastAPI):
         logger.success("Database connection established")
     else:
         logger.error("Failed to connect to database")
-    
+
     yield
-    
+
     # Shutdown (add cleanup code here if needed)
     logger.info(f"Shutting down {settings.app_name}")
 

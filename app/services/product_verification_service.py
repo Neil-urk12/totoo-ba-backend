@@ -229,49 +229,49 @@ class ProductVerificationService:
     def _parse_drug_ingredients(self, ingredient_text: str) -> set[str]:
         """
         Parse drug ingredient text into a set of normalized ingredient names.
-        
+
         Handles formats like:
         - "Phenylephrine HCI + Chlorphenamine Maleate + Paracetamol"
         - "Phenylephrine Hydrochloride and Chlorphenamine Maleate"
-        
+
         Args:
             ingredient_text: Raw ingredient text
-            
+
         Returns:
             Set of normalized ingredient names (lowercase, without salt forms)
         """
         import re
-        
+
         if not ingredient_text:
             return set()
-        
+
         # Normalize the text
         text = ingredient_text.lower().strip()
-        
+
         # Split by common delimiters
         # Replace 'and', '+', '/', ',' with a pipe for splitting
         text = re.sub(r'\s+(?:and|\+|/|,)\s+', '|', text)
-        
+
         # Split into individual ingredients
         raw_ingredients = [ing.strip() for ing in text.split('|')]
-        
+
         # Normalize each ingredient
         normalized = set()
         for ingredient in raw_ingredients:
             if not ingredient:
                 continue
-                
+
             # Remove salt/acid forms (e.g., "hydrochloride", "maleate", "sulfate", "hcl", "hci")
             # These are common variations that should be treated as equivalent
             ingredient = re.sub(r'\s+(hydrochloride|hcl|hci|maleate|sulfate|citrate|phosphate|sodium|potassium)\b', '', ingredient)
-            
+
             # Remove extra whitespace
             ingredient = ' '.join(ingredient.split())
-            
+
             # Only keep meaningful ingredient names (at least 3 chars)
             if len(ingredient) >= 3:
                 normalized.add(ingredient)
-        
+
         return normalized
 
     def _calculate_relevance_score(
@@ -408,10 +408,10 @@ class ProductVerificationService:
                         # Calculate word overlap ratio
                         common_words = search_words & field_words
                         overlap_ratio = len(common_words) / len(search_words)
-                        
+
                         # Also calculate reverse overlap (important for longer database product names)
                         reverse_overlap_ratio = len(common_words) / len(field_words) if field_words else 0
-                        
+
                         # Use the better of the two ratios
                         best_overlap = max(overlap_ratio, reverse_overlap_ratio)
 
@@ -431,17 +431,17 @@ class ProductVerificationService:
         if product_description:
             # Extract key flavor/descriptor terms (usually important nouns/adjectives)
             flavor_keywords = {
-                word.lower() for word in product_description.strip().split() 
+                word.lower() for word in product_description.strip().split()
                 if len(word) >= 4 and word.lower() not in {
                     "flavored", "flavor", "drink", "juice", "plus", "with", "from"
                 }
             }
-            
+
             for field in ["product_name", "generic_name"]:
                 if model_dict.get(field) and flavor_keywords:
                     field_lower = str(model_dict[field]).lower()
                     matching_keywords = [kw for kw in flavor_keywords if kw in field_lower]
-                    
+
                     if matching_keywords:
                         # Boost score based on number of matching keywords
                         keyword_bonus = min(0.15, len(matching_keywords) * 0.05)
@@ -456,25 +456,25 @@ class ProductVerificationService:
         # This is critical for cases like "Solmux" (Carbocisteine drug) vs food products
         if isinstance(model_instance, DrugProducts):
             generic_name = model_dict.get("generic_name")
-            
+
             # Check if generic name appears in extracted product description or brand name
             if generic_name:
                 generic_lower = generic_name.lower()
-                
+
                 # Check in product description
                 if product_description and generic_lower in product_description.lower():
                     score += 0.25  # Strong boost for generic name in description
                     logger.debug(
                         f"Drug generic match boost: +0.25 ('{generic_name}' in description)"
                     )
-                
+
                 # Check in brand name (sometimes generic is mentioned)
                 elif search_info.get("brand_name") and generic_lower in search_info["brand_name"].lower():
                     score += 0.20  # Boost for generic in brand
                     logger.debug(
                         f"Drug generic match boost: +0.20 ('{generic_name}' in brand)"
                     )
-                
+
                 # Multi-ingredient matching for drug products
                 # Critical for drugs like "Neozep Forte" (Phenylephrine + Chlorphenamine + Paracetamol)
                 # vs "Neozep" (Phenylephrine + Chlorphenamine)
@@ -483,17 +483,17 @@ class ProductVerificationService:
                     # Ingredients are typically separated by '+' or 'and'
                     search_ingredients = self._parse_drug_ingredients(product_description)
                     db_ingredients = self._parse_drug_ingredients(generic_name)
-                    
+
                     if search_ingredients and db_ingredients:
                         # Count matching ingredients
                         matched_ingredients = search_ingredients & db_ingredients
                         total_search_ingredients = len(search_ingredients)
                         total_db_ingredients = len(db_ingredients)
-                        
+
                         if matched_ingredients:
                             # Calculate ingredient match ratio
                             match_ratio = len(matched_ingredients) / max(total_search_ingredients, total_db_ingredients)
-                            
+
                             # Perfect match: all ingredients match
                             if match_ratio == 1.0 and total_search_ingredients == total_db_ingredients:
                                 score += 0.35  # Very strong boost for perfect ingredient match
@@ -525,7 +525,7 @@ class ProductVerificationService:
                                     f"Incomplete drug ingredient match: {penalty:.2f} penalty "
                                     f"({len(matched_ingredients)}/{total_search_ingredients} ingredients, ratio={match_ratio:.2f})"
                                 )
-                    
+
                     # Fallback: word-level matching for generic name
                     else:
                         search_words = {
@@ -558,7 +558,7 @@ class ProductVerificationService:
         if search_info.get("brand_name") and model_dict.get("brand_name"):
             search_brand = search_info["brand_name"].lower().strip()
             db_brand = model_dict["brand_name"].lower().strip()
-            
+
             # If database brand is significantly longer and contains search brand as substring
             if search_brand in db_brand and len(db_brand) > len(search_brand) * 1.5:
                 # Check if product description provides context that matches the extra brand terms
@@ -569,7 +569,7 @@ class ProductVerificationService:
                     # If product description contains words from the extra brand terms, it's okay
                     if extra_brand_words & desc_words:
                         has_context_match = True
-                
+
                 if not has_context_match:
                     # Apply minor penalty for potential sub-brand mismatch
                     penalty = 0.05
