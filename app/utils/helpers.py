@@ -1,6 +1,9 @@
 """Utility helper functions for string manipulation and data processing."""
 
+from functools import lru_cache
 
+
+@lru_cache(maxsize=1024)
 def normalize_string(text: str) -> str:
     """Normalize string for comparison by converting to uppercase and removing spaces.
 

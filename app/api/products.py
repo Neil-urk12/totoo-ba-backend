@@ -91,6 +91,9 @@ async def verify_product(
         )
 
     try:
+        # Pre-normalize the search term once to avoid repeated normalization
+        normalized_product_id = normalize_string(product_id)
+        
         # Use service layer for business logic
         logger.debug(f"Searching for product ID: {product_id}")
         search_results = await verification_service.verify_product_by_id(product_id)
@@ -117,17 +120,17 @@ async def verify_product(
             # Check for exact registration/license number match
             if match.get("registration_number") and normalize_string(
                 match["registration_number"]
-            ) == normalize_string(product_id):
+            ) == normalized_product_id:
                 is_exact_match = True
                 matched_field = "registration_number"
             elif match.get("license_number") and normalize_string(
                 match["license_number"]
-            ) == normalize_string(product_id):
+            ) == normalized_product_id:
                 is_exact_match = True
                 matched_field = "license_number"
             elif match.get("document_tracking_number") and normalize_string(
                 match["document_tracking_number"]
-            ) == normalize_string(product_id):
+            ) == normalized_product_id:
                 is_exact_match = True
                 matched_field = "document_tracking_number"
 
