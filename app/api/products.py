@@ -529,7 +529,7 @@ async def new_verify_product_image(
             matched_product=matched_product,
             extracted_fields=extracted_fields_dict,
             ai_reasoning=ai_verification["reasoning"],
-            alternative_matches=fuzzy_results[:3],
+            alternative_matches=fuzzy_results[:7],
             processing_metadata=metadata_dict,
         )
 
