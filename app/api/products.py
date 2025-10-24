@@ -5,7 +5,6 @@ Provides REST API endpoints for verifying products using:
 - Image-based verification using Groq AI vision models
 - Hybrid OCR verification using Tesseract + Groq
 """
-import json
 import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -318,142 +317,6 @@ async def verify_product(
         )
 
 
-# Image verification endpoint using Groq Llama 4 Maverick
-@router.post(
-    "/verify-image",
-    response_model=ImageVerificationResponse,
-    summary="Verify Product from Image",
-    description="Verifies a product by analyzing an uploaded image using Groq Llama 4 Maverick AI",
-)
-async def verify_product_image(
-    image: UploadFile = File(...),
-    verification_service: ProductVerificationService = Depends(
-        get_product_verification_service
-    ),
-):
-    """Verify a product by analyzing an uploaded image.
-
-    Uses Groq Llama 4 Maverick to extract text and match against FDA database.
-    No OCR preprocessing required - Groq handles vision understanding directly.
-
-    Args:
-        image: Uploaded image file (max 5MB, JPEG/PNG/GIF/WebP).
-        verification_service: Injected product verification service.
-
-    Returns:
-        ImageVerificationResponse: Verification result with extracted fields and matches.
-
-    Raises:
-        HTTPException: If image is invalid, too large, or processing fails.
-    """
-    logger.info(f"Image verification request: filename={image.filename}, type={image.content_type}")
-
-    if not GROQ_AVAILABLE or not groq_client:
-        logger.error("Groq AI service unavailable")
-        raise HTTPException(
-            status_code=500,
-            detail="AI verification service temporarily unavailable. Please try again later.",
-        )
-
-    # Validate image file
-    if not image.content_type or not image.content_type.startswith("image/"):
-        logger.warning(f"Invalid file type uploaded: {image.content_type}")
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid file type: {image.content_type}. Please upload an image file.",
-        )
-
-    # Check file size (max 5MB)
-    max_file_size = 5 * 1024 * 1024  # 5MB
-    image.file.seek(0, 2)  # Move to end of file to get size
-    file_size = image.file.tell()
-    image.file.seek(0)  # Move back to beginning of file
-    logger.debug(f"Image file size: {file_size / 1024:.2f} KB")
-
-    if file_size > max_file_size:
-        logger.warning(f"File too large: {file_size / 1024 / 1024:.2f} MB")
-        raise HTTPException(
-            status_code=413, detail="File too large. Maximum size is 5MB."
-        )
-
-    try:
-        # Read uploaded image as bytes
-        image_bytes = await image.read()
-
-        # Validate actual file content matches claimed content type
-        if not validate_image_content(image_bytes, image.content_type):
-            raise HTTPException(
-                status_code=400,
-                detail="File type mismatch. The uploaded file does not match the declared content type.",
-            )
-
-        # Step 1: Extract structured data directly from image using Groq
-        logger.info("Extracting fields from image using Groq Llama 4 Maverick")
-        extracted_data = await extract_fields_from_image(
-            image_bytes, image.content_type
-        )
-        logger.debug(f"Extracted fields: registration_number={extracted_data['extracted_fields'].get('registration_number')}, "
-                    f"brand_name={extracted_data['extracted_fields'].get('brand_name')}")
-
-        # Step 2: Convert extracted fields to search dict and query FDA database
-        search_dict = convert_extracted_fields_to_search_dict(
-            extracted_data["extracted_fields"]
-        )
-        logger.info(f"Searching FDA database with {len(search_dict)} extracted fields")
-
-        search_results = await verification_service.search_and_rank_products(
-            search_dict
-        )
-
-        fuzzy_results = [result.to_dict() for result in search_results]
-        logger.info(f"Found {len(fuzzy_results)} potential matches from database")
-
-        # Step 3: AI-assisted intelligent matching
-        logger.info("Running AI-assisted matching with Groq Llama 4 Maverick")
-        ai_verification = await ai_assisted_verification(
-            extracted_fields=search_dict,
-            raw_text=extracted_data.get("raw_text", ""),
-            fuzzy_results=fuzzy_results,
-        )
-        logger.info(
-            f"AI verification complete: status={ai_verification['confidence']}% confidence, "
-            f"matched_index={ai_verification['matched_product_index']}"
-        )
-
-        # Determine final match
-        matched_product = None
-        if ai_verification["matched_product_index"] is not None:
-            idx = ai_verification["matched_product_index"]
-            if idx < len(fuzzy_results):
-                matched_product = fuzzy_results[idx]
-
-        # Determine verification status
-        verification_status = "not_found"
-        if ai_verification["confidence"] > 80:
-            verification_status = "verified"
-        elif ai_verification["confidence"] > 50:
-            verification_status = "uncertain"
-
-        logger.info(f"Image verification result: {verification_status} (confidence: {ai_verification['confidence']}%)")
-
-        return ImageVerificationResponse(
-            verification_status=verification_status,
-            confidence=ai_verification["confidence"],
-            matched_product=matched_product,
-            extracted_fields=ai_verification["extracted_fields"],
-            ai_reasoning=ai_verification["reasoning"],
-            alternative_matches=fuzzy_results[:3],
-        )
-
-    except Exception as e:
-        # Log the detailed error server-side for debugging
-        logger.error(f"Image verification failed: {str(e)}")
-        logger.exception("Full traceback:")
-        raise HTTPException(
-            status_code=500, detail="Image verification failed. Please try again."
-        ) from e
-    finally:
-        await image.close()
 
 
 def convert_extracted_fields_to_search_dict(extracted_fields: dict) -> dict:
@@ -499,242 +362,10 @@ def convert_extracted_fields_to_search_dict(extracted_fields: dict) -> dict:
     return search_dict
 
 
-async def extract_fields_from_image(image_bytes: bytes, mime_type: str) -> dict:
-    """
-    Extract structured fields directly from product image using Groq Llama 4 Maverick.
-    No OCR preprocessing - Groq handles vision understanding natively.
-    """
-
-    prompt = """You are an expert FDA Philippines product verification assistant.
-
-Analyze this product image and extract ALL visible text and product information.
-
-Extract these specific fields:
-- registration_number: FDA Philippines registration number (patterns: BR-XXXX, DR-XXXXX, FR-XXXXX, etc.)
-- brand_name: Product brand name (extract ONLY the core brand, e.g., "C2" not "C2 COOL & CLEAN")
-- product_description: Product description, type, flavor, or generic name (e.g., "APPLE GREEN TEA", "CHOCOLATE MILK", "PAIN RELIEVER")
-- manufacturer: Manufacturer or distributor company name
-- expiry_date: Expiration date or "Best Before" date
-- batch_number: Batch, lot, or production number
-- net_weight: Net weight, volume, or quantity
-
-IMPORTANT EXTRACTION RULES:
-1. For brand_name: Extract the PRIMARY brand identifier only (shortest recognizable brand)
-   - Example: "C2" not "C2 COOL & CLEAN"
-   - Example: "Nestle" not "Nestle Pure Life"
-
-2. For product_description: Extract the product type/flavor/description that describes what the product is
-   - For beverages: "APPLE GREEN TEA", "ORANGE JUICE", "COLA"
-   - For medicines: "PAIN RELIEVER", "COUGH SYRUP", "VITAMINS"
-   - For food: "CHOCOLATE MILK", "INSTANT NOODLES", "COOKIES"
-
-3. Extract exact text as it appears, but prioritize the SHORTEST meaningful brand name
-4. If a field is not visible or unclear, set it to null
-5. Pay special attention to FDA registration numbers (usually starts with letters like BR, DR, FR, etc.)
-
-Also provide the complete raw text visible in the image for fallback matching."""
-
-    try:
-        # Convert image to base64 for Groq
-        import base64
-        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
-        image_url = f"data:{mime_type};base64,{image_base64}"
-
-        # Generate structured content
-        completion = groq_client.chat.completions.create(
-            model="meta-llama/llama-4-maverick-17b-128e-instruct",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": image_url}}
-                    ]
-                }
-            ],
-            temperature=0.1,
-            max_tokens=1000,
-            response_format={"type": "json_object"}
-        )
-
-        # Parse JSON response
-        result_text = completion.choices[0].message.content
-        parsed = json.loads(result_text)
-
-        extracted_fields = ExtractedFields(
-            registration_number=parsed.get("registration_number"),
-            brand_name=parsed.get("brand_name"),
-            product_description=parsed.get("product_description"),
-            manufacturer=parsed.get("manufacturer"),
-            expiry_date=parsed.get("expiry_date"),
-            batch_number=parsed.get("batch_number"),
-            net_weight=parsed.get("net_weight"),
-        )
-
-        # Also get raw text for additional context
-        raw_text_completion = groq_client.chat.completions.create(
-            model="meta-llama/llama-4-maverick-17b-128e-instruct",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "Extract all visible text from this image as plain text, preserving layout where possible."},
-                        {"type": "image_url", "image_url": {"url": image_url}}
-                    ]
-                }
-            ],
-            temperature=0.1,
-            max_tokens=1000,
-        )
-
-        raw_text = raw_text_completion.choices[0].message.content
-
-        return {
-            "extracted_fields": extracted_fields.model_dump(),
-            "raw_text": raw_text,
-        }
-
-    except Exception as e:
-        # Log the detailed error server-side for debugging
-        raise HTTPException(
-            status_code=500, detail="Image processing failed. Please try again."
-        ) from e
 
 
-async def ai_assisted_verification(
-    extracted_fields: dict, raw_text: str, fuzzy_results: dict
-) -> dict:
-    """
-    Use Groq Llama 4 Maverick for intelligent matching with improved fuzzy tolerance.
-    """
-
-    alternatives_text = "No potential matches found in database."
-    if fuzzy_results:
-        alternatives_text = json.dumps(fuzzy_results[:10], indent=2, ensure_ascii=False)
-
-    prompt = f"""You are an FDA Philippines product verification expert with expertise in fuzzy matching.
-
-Your task: Determine if the extracted product information matches any database records.
-
-EXTRACTED PRODUCT DATA:
-{json.dumps(extracted_fields, indent=2, ensure_ascii=False)}
-
-RAW TEXT FROM IMAGE:
-{raw_text[:1500]}
-
-POTENTIAL DATABASE MATCHES (sorted by similarity):
-{alternatives_text}
-
-VERIFICATION TASKS:
-1. Compare extracted fields against each database record using FUZZY MATCHING
-2. Identify the correct match (if any) by index (0-based) or return null
-3. Calculate confidence score (0-100):
-   - 90-100: Perfect match on registration number + brand
-   - 70-89: Strong match on brand + product type with minor variations
-   - 50-69: Partial match with acceptable variations
-   - 30-49: Weak match, significant uncertainty
-   - 0-29: Poor match or no match
-
-IMPORTANT FUZZY MATCHING RULES:
-- Brand names: "C2" matches "C2 COOL & CLEAN" (core brand is the same)
-- Product names: "APPLE GREEN TEA" matches "APPLE FLAVORED GREEN TEA-SOLO" (similar product)
-- Allow for:
-  * Additional descriptive words (COOL, CLEAN, FLAVORED, SOLO, etc.)
-  * Different word order
-  * Minor spelling variations
-  * Special characters and formatting differences
-
-- FDA registration numbers are the STRONGEST identifier (if present)
-- If no registration number: rely on brand + product name combination
-- Consider OCR errors (e.g., "0" vs "O", "1" vs "l")
-- If multiple matches: choose the one with best overall field alignment
-
-DECISION PRIORITY:
-1. Registration number match = high confidence (80-100)
-2. Brand + product type match = medium-high confidence (60-85)
-3. Brand only match = medium confidence (40-65)
-4. No clear match = low confidence (0-35)
-
-Provide structured output with your decision and clear reasoning."""
-
-    try:
-        completion = groq_client.chat.completions.create(
-            model="meta-llama/llama-4-maverick-17b-128e-instruct",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,  # Slightly higher for flexible matching
-            max_tokens=1000,
-            response_format={"type": "json_object"}
-        )
-
-        # Parse JSON response
-        result_text = completion.choices[0].message.content
-        parsed = json.loads(result_text)
-
-        return {
-            "matched_product_index": parsed.get("matched_product_index"),
-            "confidence": parsed.get("confidence", 0),
-            "extracted_fields": parsed.get("extracted_fields", extracted_fields),
-            "reasoning": parsed.get("reasoning", "No reasoning provided"),
-        }
-
-    except Exception:
-        # Log the detailed error server-side for debugging
-        return {
-            "matched_product_index": None,
-            "confidence": 0,
-            "extracted_fields": extracted_fields,
-            "reasoning": "AI verification temporarily unavailable. Please try again later.",
-        }
 
 
-def fast_fuzzy_match(extracted_fields: dict, fuzzy_results: list[dict]) -> dict:
-    """
-    Fast rule-based fuzzy matching without LLM calls.
-    Uses simple string similarity for product matching.
-    """
-    if not fuzzy_results:
-        return {
-            "matched_product_index": None,
-            "confidence": 0,
-            "extracted_fields": extracted_fields,
-            "reasoning": "No matching products found in database.",
-        }
-
-    # Use the first result (already ranked by database query)
-    best_match = fuzzy_results[0]
-    best_index = 0
-
-    # Calculate confidence based on relevance score from database
-    relevance = best_match.get("relevance_score", 0.0)
-
-    # Convert relevance to confidence (0-100)
-    confidence = int(relevance * 100)
-
-    # Boost confidence if we have exact brand match
-    if extracted_fields.get("brand_name"):
-        db_brand = best_match.get("brand_name", "").upper()
-        extracted_brand = extracted_fields["brand_name"].upper()
-
-        if extracted_brand in db_brand or db_brand in extracted_brand:
-            confidence = min(100, confidence + 10)
-
-    # Build reasoning
-    match_type = best_match.get("type", "product")
-    brand = best_match.get("brand_name") or best_match.get("product_name", "Unknown")
-
-    if confidence >= 80:
-        reasoning = f"Strong match found: {brand} ({match_type}). Database relevance score: {relevance:.0%}"
-    elif confidence >= 60:
-        reasoning = f"Good match found: {brand} ({match_type}). Database relevance score: {relevance:.0%}"
-    else:
-        reasoning = f"Weak match: {brand} ({match_type}). Low database relevance: {relevance:.0%}"
-
-    return {
-        "matched_product_index": best_index,
-        "confidence": confidence,
-        "extracted_fields": extracted_fields,
-        "reasoning": reasoning,
-    }
 
 
 def validate_image_content(file_bytes: bytes, mime_type: str) -> bool:
@@ -929,14 +560,47 @@ async def new_verify_product_image(
             "net_weight": extracted_data.net_weight,
         }
 
-        # Use fast fuzzy matching instead of additional LLM calls
+        # Use simple rule-based matching without additional LLM calls
         ai_verify_start = time.time()
 
-        # Simple rule-based matching using existing data
-        ai_verification = fast_fuzzy_match(
-            extracted_fields=search_dict,
-            fuzzy_results=fuzzy_results,
-        )
+        # Simple rule-based matching using database relevance scores
+        if not fuzzy_results:
+            ai_verification = {
+                "matched_product_index": None,
+                "confidence": 0,
+                "extracted_fields": search_dict,
+                "reasoning": "No matching products found in database.",
+            }
+        else:
+            # Use the first result (already ranked by database query)
+            best_match = fuzzy_results[0]
+            relevance = best_match.get("relevance_score", 0.0)
+            confidence = int(relevance * 100)
+
+            # Boost confidence if we have exact brand match
+            if search_dict.get("brand_name"):
+                db_brand = best_match.get("brand_name", "").upper()
+                extracted_brand = search_dict["brand_name"].upper()
+                if extracted_brand in db_brand or db_brand in extracted_brand:
+                    confidence = min(100, confidence + 10)
+
+            # Build reasoning
+            match_type = best_match.get("type", "product")
+            brand = best_match.get("brand_name") or best_match.get("product_name", "Unknown")
+
+            if confidence >= 80:
+                reasoning = f"Strong match found: {brand} ({match_type}). Database relevance score: {relevance:.0%}"
+            elif confidence >= 60:
+                reasoning = f"Good match found: {brand} ({match_type}). Database relevance score: {relevance:.0%}"
+            else:
+                reasoning = f"Weak match: {brand} ({match_type}). Low database relevance: {relevance:.0%}"
+
+            ai_verification = {
+                "matched_product_index": 0,
+                "confidence": confidence,
+                "extracted_fields": search_dict,
+                "reasoning": reasoning,
+            }
 
         time.time() - ai_verify_start
 
