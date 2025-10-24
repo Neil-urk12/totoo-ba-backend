@@ -336,7 +336,12 @@ class ProductVerificationService:
                 if model_dict.get(field):
                     # Exact phrase match (highest score)
                     if product_description.lower() in model_dict[field].lower():
-                        score += 0.25  # 25% weight for exact product description match
+                        score += 0.30  # 30% weight for exact product description match
+                        matched_fields.append(field)
+                        break
+                    # Reverse match (database product in search description)
+                    if model_dict[field].lower() in product_description.lower():
+                        score += 0.28  # 28% weight for reverse exact match
                         matched_fields.append(field)
                         break
                     # Word-level tokenized match (handles word order variations)
@@ -355,16 +360,49 @@ class ProductVerificationService:
                         # Calculate word overlap ratio
                         common_words = search_words & field_words
                         overlap_ratio = len(common_words) / len(search_words)
+                        
+                        # Also calculate reverse overlap (important for longer database product names)
+                        reverse_overlap_ratio = len(common_words) / len(field_words) if field_words else 0
+                        
+                        # Use the better of the two ratios
+                        best_overlap = max(overlap_ratio, reverse_overlap_ratio)
 
                         # Award partial score based on word overlap
                         # Lowered threshold to 25% to handle OCR text with extra packaging info
-                        if overlap_ratio >= 0.25:  # At least 25% of words match
-                            # Scale score: 25% overlap = 6.25%, 50% = 12.5%, 100% = 25%
+                        if best_overlap >= 0.25:  # At least 25% of words match
+                            # Enhanced scoring: more generous for high overlap
+                            # 25% = 7.5%, 50% = 15%, 75% = 22.5%, 100% = 30%
                             score += (
-                                0.25 * overlap_ratio
-                            )  # Up to 25% weight for partial match
+                                0.30 * best_overlap
+                            )  # Up to 30% weight for partial match
                             matched_fields.append(field)
                             break
+
+        # Flavor/Key Term Bonus: Boost products where key terms match (e.g., "APPLE", "LEMON", "CHOCOLATE")
+        # This helps differentiate between "APPLE GREEN TEA" and "GREEN APPLE" variants
+        if product_description:
+            # Extract key flavor/descriptor terms (usually important nouns/adjectives)
+            flavor_keywords = {
+                word.lower() for word in product_description.strip().split() 
+                if len(word) >= 4 and word.lower() not in {
+                    "flavored", "flavor", "drink", "juice", "plus", "with", "from"
+                }
+            }
+            
+            for field in ["product_name", "generic_name"]:
+                if model_dict.get(field) and flavor_keywords:
+                    field_lower = str(model_dict[field]).lower()
+                    matching_keywords = [kw for kw in flavor_keywords if kw in field_lower]
+                    
+                    if matching_keywords:
+                        # Boost score based on number of matching keywords
+                        keyword_bonus = min(0.15, len(matching_keywords) * 0.05)
+                        score += keyword_bonus
+                        logger.debug(
+                            f"Flavor keyword bonus: +{keyword_bonus:.2f} "
+                            f"(matched: {', '.join(matching_keywords)})"
+                        )
+                        break
 
         # Context bonus: If this is a drug product and generic_name has good matches with product_description
         # This helps rank "Neozep" (nasal decongestant) above "NEO" (jalapeno) when both match brand
@@ -392,6 +430,33 @@ class ProductVerificationService:
                     # Some overlap = moderate context match
                     score += 0.05
                     logger.debug("Drug context bonus: +0.05 (1 matching term)")
+
+        # Penalty for extra descriptors in database product when extracted data is simpler
+        # E.g., if we extract "C2" but database has "C2 COOL & CLEAN", apply small penalty
+        # This prevents wrong sub-brand matches when vision misses the sub-brand text
+        if search_info.get("brand_name") and model_dict.get("brand_name"):
+            search_brand = search_info["brand_name"].lower().strip()
+            db_brand = model_dict["brand_name"].lower().strip()
+            
+            # If database brand is significantly longer and contains search brand as substring
+            if search_brand in db_brand and len(db_brand) > len(search_brand) * 1.5:
+                # Check if product description provides context that matches the extra brand terms
+                has_context_match = False
+                if product_description:
+                    extra_brand_words = set(db_brand.split()) - set(search_brand.split())
+                    desc_words = set(product_description.lower().split())
+                    # If product description contains words from the extra brand terms, it's okay
+                    if extra_brand_words & desc_words:
+                        has_context_match = True
+                
+                if not has_context_match:
+                    # Apply minor penalty for potential sub-brand mismatch
+                    penalty = 0.05
+                    score = max(0, score - penalty)
+                    logger.debug(
+                        f"Sub-brand length penalty: -{penalty:.2f} "
+                        f"(search='{search_brand}', db='{db_brand}')"
+                    )
 
         logger.debug(f"Score calculated: {score:.2f}, matched_fields={matched_fields}")
         return score, matched_fields

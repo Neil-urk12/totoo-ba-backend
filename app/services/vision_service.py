@@ -139,13 +139,15 @@ Return a JSON object with an "items" array containing the extracted text:
 
 Focus on extracting:
 - Registration numbers (BR-, DR-, FR-, etc.)
-- Brand names
-- Product descriptions
+- Brand names (include FULL brand with sub-brand text like "C2 COOL & CLEAN", not just "C2")
+- Product descriptions (flavors, types, formulations)
 - Manufacturer names
 - Dates
 - Batch numbers
 - Net weights/volumes
 - Any other visible text
+
+IMPORTANT for brand names: Extract the complete brand including any taglines, sub-brands, or additional branding text nearby (e.g., "C2 COOL & CLEAN" not just "C2").
 
 Be thorough and extract even small or partially visible text."""
 
@@ -322,12 +324,16 @@ TEXT (OCR Confidence: {confidence_score:.0%}):
 
 EXTRACTION RULES:
 1. registration_number: FDA registration number (BR-XXXX, DR-XXXXX, FR-XXXXX, etc.)
-2. brand_name: PRIMARY brand name only (e.g., "C2" not "C2 COOL & CLEAN")
-3. product_description: Product type, flavor, or description
+2. brand_name: COMPLETE brand name including sub-brands and taglines (e.g., "C2 COOL & CLEAN", not just "C2")
+3. product_description: Complete product description including flavor, type, and key attributes (e.g., "APPLE GREEN TEA")
 4. manufacturer: Company or manufacturer name
 5. expiry_date: Expiration or best before date
 6. batch_number: Batch, lot, or production code
 7. net_weight: Net weight or volume
+
+IMPORTANT:
+- For brand_name: Include the FULL brand text, including sub-brands (e.g., "C2 COOL & CLEAN" or "C2 PLUS IMMUNO-C", not just "C2")
+- For product_description: Capture the complete flavor and product type (e.g., "APPLE GREEN TEA" or "GREEN APPLE JUICE TEA")
 
 Return ONLY a valid JSON object with these exact field names. Use null for fields not found.
 Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
@@ -427,14 +433,17 @@ Analyze this product image carefully and extract ALL visible text and product in
 
 Extract these specific fields:
 - registration_number: FDA Philippines registration number (BR-XXXX, DR-XXXXX, FR-XXXXX, etc.)
-- brand_name: PRIMARY brand name only
-- product_description: Product type, flavor, or description
+- brand_name: COMPLETE brand name including sub-brands and taglines (e.g., "C2 COOL & CLEAN", not just "C2")
+- product_description: Complete product description including flavor and type (e.g., "APPLE GREEN TEA")
 - manufacturer: Manufacturer or distributor name
 - expiry_date: Expiration date
 - batch_number: Batch or lot number
 - net_weight: Net weight or volume
 
-IMPORTANT: Extract exact text as visible. Set to null if not visible or unclear.
+IMPORTANT: 
+- Extract the FULL brand name with any sub-brand text (e.g., "C2 COOL & CLEAN" not "C2")
+- Capture complete product description with flavor and product type
+- Extract exact text as visible. Set to null if not visible or unclear.
 
 Return as JSON with these exact field names."""
 
