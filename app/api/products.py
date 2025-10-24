@@ -413,6 +413,14 @@ async def new_verify_product_image(
             "manufacturer": extracted_data.manufacturer,
             "company_name": extracted_data.manufacturer,
         }
+        
+        # If brand_name is very long and contains product description-like text,
+        # also add it to product_description for better matching
+        if extracted_data.brand_name and len(extracted_data.brand_name) > 30:
+            # Brand name might have generic/product info mixed in
+            if not search_dict.get("product_description"):
+                search_dict["product_description"] = extracted_data.brand_name
+                search_dict["generic_name"] = extracted_data.brand_name
 
         # Remove None values
         search_dict = {k: v for k, v in search_dict.items() if v is not None}
