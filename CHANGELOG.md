@@ -96,6 +96,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Fast Fuzzy-Matching Path**
+  - Quick database product matching without LLM calls for simple/common cases
+  - Reduces latency and API costs for straightforward product lookups
+  - Confidence-based scoring for match quality assessment
+
+- **Intelligent Fallback Mechanisms**
+  - Rule-based matching fallback when LLM confidence is low
+  - Vision service fallback for product type detection when LLM classification uncertain
+  - Layered approach ensures robust matching even with partial or ambiguous data
+
+- **Improved Application Lifecycle & Logging**
+  - Enhanced startup/shutdown lifecycle management with FastAPI lifespan context manager
+  - Automatic database table creation and connection verification on startup
+  - Comprehensive logging setup using Loguru for better observability
+  - Improved error handling and logging during initialization
+
+- **Enhanced Middleware & Health Endpoints**
+  - CORS middleware with configurable allowed origins, methods, and headers
+  - GZip compression middleware for optimized response size (minimum 1000 bytes)
+  - Root endpoint (`GET /`) providing app info, version, environment, and status
+  - Health check endpoint (`GET /health`) for monitoring and orchestration
+  - Proper dependency injection for settings in health check endpoint
+
+- **Documentation Updates**
+  - Updated LLM model information and references (e.g., Groq Llama 3.1-8B-instant)
+  - Clearer configuration and deployment documentation
+
 ### Planned
 - Enhanced AI model integration
 - Additional product categories
@@ -103,7 +131,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Caching layer for frequently accessed data
 - Rate limiting and API authentication
 - Batch verification endpoints
-- Enhanced fuzzy matching algorithms
 - WebSocket support for real-time updates
 
 ---
