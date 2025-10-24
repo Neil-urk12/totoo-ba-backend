@@ -10,7 +10,7 @@ import os
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from groq import Groq
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 # Import dependencies and repository
 from app.api.deps import get_product_verification_service
@@ -44,88 +44,6 @@ except Exception:
     groq_client = None
 
 
-# Pydantic models for structured Groq output
-class ExtractedFields(BaseModel):
-    """Structured fields extracted from product image.
-
-    Attributes:
-        registration_number: FDA Philippines registration number.
-        brand_name: Brand name of the product.
-        product_description: Product description, type, or flavor.
-        manufacturer: Manufacturer or distributor name.
-        expiry_date: Expiration or best before date.
-        batch_number: Batch or lot number.
-        net_weight: Net weight or volume.
-    """
-
-    registration_number: str | None = Field(
-        None,
-        description="FDA Philippines registration number (e.g., BR-XXXX, DR-XXXXX, FR-XXXXX)",
-        alias="registration_number",
-    )
-    brand_name: str | None = Field(
-        None, description="Brand name of the product", alias="brand_name"
-    )
-    product_description: str | None = Field(
-        None,
-        description="Product description, type, flavor, or generic name. For food: product type/flavor. For drugs: generic name",
-        alias="product_description",
-    )
-    manufacturer: str | None = Field(
-        None, description="Manufacturer or distributor name", alias="manufacturer"
-    )
-    expiry_date: str | None = Field(
-        None, description="Expiration or best before date", alias="expiry_date"
-    )
-    batch_number: str | None = Field(
-        None, description="Batch or lot number", alias="batch_number"
-    )
-    net_weight: str | None = Field(
-        None, description="Net weight or volume", alias="net_weight"
-    )
-
-    class Config:
-        populate_by_name = True  # Allow population by both field name and alias
-
-
-class VerificationResult(BaseModel):
-    """AI verification result with structured output.
-
-    Attributes:
-        matched_product_index: Index of matched product from database (null if no match).
-        confidence: Confidence score from 0-100.
-        extracted_fields: Structured fields extracted from the image.
-        reasoning: Explanation of matching decision and confidence level.
-    """
-
-    matched_product_index: int | None = Field(
-        None, description="Index of matched product from database (null if no match)"
-    )
-    confidence: int = Field(..., ge=0, le=100, description="Confidence score 0-100")
-    extracted_fields: ExtractedFields
-    reasoning: str = Field(
-        ..., description="Explanation of matching decision and confidence level"
-    )
-
-
-class ImageVerificationResponse(BaseModel):
-    """Response for image-based verification.
-
-    Attributes:
-        verification_status: Status of verification ('verified', 'uncertain', 'not_found').
-        confidence: Confidence score from 0-100.
-        matched_product: Matched product details if found.
-        extracted_fields: Fields extracted from the image.
-        ai_reasoning: AI explanation of the verification decision.
-        alternative_matches: List of alternative potential matches.
-    """
-
-    verification_status: str  # 'verified', 'uncertain', 'not_found'
-    confidence: int
-    matched_product: dict | None = None
-    extracted_fields: dict
-    ai_reasoning: str
-    alternative_matches: list = []
 
 
 # Product verification endpoint (final)
@@ -319,47 +237,6 @@ async def verify_product(
 
 
 
-def convert_extracted_fields_to_search_dict(extracted_fields: dict) -> dict:
-    """
-    Convert extracted fields dict to a search dictionary with proper field mapping.
-    Maps product_description to the appropriate field names for different product types.
-
-    Args:
-        extracted_fields: Dictionary with extracted field data (from ExtractedFields.model_dump())
-
-    Returns:
-        Search dictionary with proper field mappings for database queries
-    """
-    search_dict = {}
-
-    # Direct field mappings - handle dict access
-    if extracted_fields.get("registration_number"):
-        search_dict["registration_number"] = extracted_fields["registration_number"]
-    if extracted_fields.get("brand_name"):
-        search_dict["brand_name"] = extracted_fields["brand_name"]
-    if extracted_fields.get("manufacturer"):
-        search_dict["manufacturer"] = extracted_fields["manufacturer"]
-        search_dict["company_name"] = extracted_fields[
-            "manufacturer"
-        ]  # Also map to company_name for food products
-    if extracted_fields.get("expiry_date"):
-        search_dict["expiry_date"] = extracted_fields["expiry_date"]
-    if extracted_fields.get("batch_number"):
-        search_dict["batch_number"] = extracted_fields["batch_number"]
-    if extracted_fields.get("net_weight"):
-        search_dict["net_weight"] = extracted_fields["net_weight"]
-
-    # Map product_description to both generic_name and product_name for compatibility
-    if extracted_fields.get("product_description"):
-        search_dict["product_description"] = extracted_fields["product_description"]
-        search_dict["generic_name"] = extracted_fields[
-            "product_description"
-        ]  # For drug products
-        search_dict["product_name"] = extracted_fields[
-            "product_description"
-        ]  # For food products
-
-    return search_dict
 
 
 
