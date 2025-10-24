@@ -93,7 +93,7 @@ async def verify_product(
     try:
         # Pre-normalize the search term once to avoid repeated normalization
         normalized_product_id = normalize_string(product_id)
-        
+
         # Use service layer for business logic
         logger.debug(f"Searching for product ID: {product_id}")
         search_results = await verification_service.verify_product_by_id(product_id)
