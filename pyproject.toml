@@ -3,6 +3,7 @@ name = "ai-rag-product-checker"
 version = "1.0.0"
 description = "FastAPI-based service to verify FDA Philippines-regulated products using database lookups and AI-powered image analysis"
 readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.9"
 authors = [
     { name = "Your Name", email = "your.email@example.com" },
