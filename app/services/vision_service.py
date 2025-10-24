@@ -137,15 +137,20 @@ Return a JSON object with an "items" array containing the extracted text:
   ]
 }
 
-Focus on extracting:
+Focus on extracting ALL visible text, especially:
 - Registration numbers (BR-, DR-, FR-, etc.)
-- Brand names
-- Product descriptions
+- Brand names (include FULL brand with sub-brand text)
+- Product type/category (e.g., "Tonkatsu Sauce", "Green Tea", "Capsule")
+- Product descriptions (flavors, formulations, ingredients)
 - Manufacturer names
-- Dates
-- Batch numbers
-- Net weights/volumes
-- Any other visible text
+- Dates, batch numbers, net weights/volumes
+- Any promotional text
+- Any other visible text in ANY language (English, Japanese, Filipino, etc.)
+
+CRITICAL: Pay special attention to:
+- Large/prominent text indicating the product type (e.g., "Tonkatsu Sauce", "Soy Sauce", "Tea")
+- Text written in English or romaji even if other languages are present
+- Product category labels that describe what the product IS
 
 Be thorough and extract even small or partially visible text."""
 
@@ -233,6 +238,60 @@ Be thorough and extract even small or partially visible text."""
         except Exception as e:
             logger.error(f"Groq vision extraction failed: {str(e)}")
             raise RuntimeError(f"Groq vision extraction failed: {e}") from e
+
+    def _clean_brand_name(self, brand_name: str) -> str:
+        """
+        Clean extracted brand name by removing common promotional and dosage text.
+
+        Args:
+            brand_name: Raw extracted brand name
+
+        Returns:
+            Cleaned brand name
+        """
+        if not brand_name:
+            return brand_name
+
+        import re
+
+        # List of patterns to remove (case-insensitive)
+        removal_patterns = [
+            r'\b\d+\s*mg\b',  # Dosage: "500mg", "500 mg"
+            r'\b\d+\s*ml\b',  # Volume: "100ml", "100 ml"
+            r'\b\d+\s*g\b',   # Weight: "10g", "10 g"
+            r'\bcapsule[s]?\b',  # Product form
+            r'\btablet[s]?\b',
+            r'\bsyrup\b',
+            r'\bsuspension\b',
+            r'\bbuy\s+\d+.*?free\b',  # Promos: "BUY 5 GET 1 FREE"
+            r'\bsulit\s+\d+\s+days?\b',  # "Sulit 2 Days"
+            r'\b\d+\s+capsule[s]?\b',  # "6 Capsules"
+            r'\b\d+\s+tablet[s]?\b',
+            r'\bpack\b',
+            r'^\d+\+\d+\b',  # "5+1"
+        ]
+
+        cleaned = brand_name
+        for pattern in removal_patterns:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+
+        # Remove extra whitespace
+        cleaned = ' '.join(cleaned.split())
+
+        # If cleaning removed everything, return original
+        if not cleaned or len(cleaned) < 2:
+            # Try to extract just manufacturer + single word brand
+            # E.g., "UNILAB Solmux" -> "Solmux"
+            words = brand_name.split()
+            if len(words) >= 2:
+                # Return last meaningful word that's likely the brand
+                for word in reversed(words):
+                    if len(word) > 2 and word.lower() not in ['inc', 'corp', 'co']:
+                        cleaned = word
+                        break
+
+        logger.debug(f"Brand name cleaned: '{brand_name}' → '{cleaned}'")
+        return cleaned.strip()
 
     def _analyze_confidence(self, vision_results: list[VisionResult]) -> ConfidenceReport:
         """
@@ -322,12 +381,43 @@ TEXT (OCR Confidence: {confidence_score:.0%}):
 
 EXTRACTION RULES:
 1. registration_number: FDA registration number (BR-XXXX, DR-XXXXX, FR-XXXXX, etc.)
-2. brand_name: PRIMARY brand name only (e.g., "C2" not "C2 COOL & CLEAN")
-3. product_description: Product type, flavor, or description
+2. brand_name: PRIMARY brand name only - the company/product brand (e.g., "Solmux", "Yamamori", "C2")
+3. product_description: CRITICAL - The product type/category and key attributes
+   - For sauces: "Tonkatsu Sauce", "Teriyaki Sauce", "Soy Sauce"
+   - For drugs: "Carbocisteine 500mg Capsule"
+   - For beverages: "Apple Green Tea", "Green Apple Juice Tea"
+   - For any product: Extract the MAIN product type/flavor/category
 4. manufacturer: Company or manufacturer name
 5. expiry_date: Expiration or best before date
 6. batch_number: Batch, lot, or production code
-7. net_weight: Net weight or volume
+7. net_weight: Net weight or volume (e.g., "500ml", "220ml", "10 tablets")
+
+CRITICAL INSTRUCTIONS:
+- brand_name: Extract ONLY the brand (e.g., "Yamamori", NOT "Yamamori Tonkatsu Sauce")
+- product_description: Extract the product TYPE (e.g., "Tonkatsu Sauce", NOT just null)
+  → This is the MOST IMPORTANT field - extract what the product IS
+  → Look for prominent text describing the product category/type
+  → Include sauce types, drink flavors, drug formulations, etc.
+
+What NOT to include in brand_name:
+❌ Promotional text (e.g., "BUY 5 GET 1 FREE", "Sulit 2 Days Pack")
+❌ Dosage/strength (e.g., "500 mg", "500mg Capsule")
+❌ Product type (e.g., "Tonkatsu Sauce", "Capsule", "Green Tea")
+❌ Product category (e.g., "Capsule", "Tablet", "Syrup")
+❌ Quantity (e.g., "6 Capsules", "100ml")
+❌ Generic/active ingredient (e.g., "Carbocisteine", "Paracetamol")
+
+✓ ONLY extract the actual brand/product name (e.g., "Solmux", "Biogesic", "C2 COOL & CLEAN")
+
+EXAMPLES:
+- If you see "BUY 5 GET 1 FREE UNILAB Carbocisteine Solmux 500mg Capsule"
+  → brand_name: "Solmux"
+  → product_description: "Carbocisteine 500mg Capsule"
+  → manufacturer: "UNILAB"
+
+- If you see "C2 COOL & CLEAN APPLE GREEN TEA"
+  → brand_name: "C2 COOL & CLEAN"
+  → product_description: "APPLE GREEN TEA"
 
 Return ONLY a valid JSON object with these exact field names. Use null for fields not found.
 Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
@@ -347,9 +437,14 @@ Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
             result_text = completion.choices[0].message.content
             parsed = json.loads(result_text)
 
+            # Clean and validate brand name to remove promotional/dosage text
+            brand_name = parsed.get("brand_name")
+            if brand_name:
+                brand_name = self._clean_brand_name(brand_name)
+
             extracted = ExtractedData(
                 registration_number=parsed.get("registration_number"),
-                brand_name=parsed.get("brand_name"),
+                brand_name=brand_name,
                 product_description=parsed.get("product_description"),
                 manufacturer=parsed.get("manufacturer"),
                 expiry_date=parsed.get("expiry_date"),
@@ -427,16 +522,27 @@ Analyze this product image carefully and extract ALL visible text and product in
 
 Extract these specific fields:
 - registration_number: FDA Philippines registration number (BR-XXXX, DR-XXXXX, FR-XXXXX, etc.)
-- brand_name: PRIMARY brand name only
-- product_description: Product type, flavor, or description
+- brand_name: The company/product brand name ONLY (e.g., "Yamamori", "Solmux")
+- product_description: CRITICAL - The product TYPE/CATEGORY (e.g., "Tonkatsu Sauce", "Teriyaki Sauce", "Carbocisteine Capsule")
+  → This is THE MOST IMPORTANT field
+  → Extract what the product IS (sauce type, drink flavor, drug formulation, etc.)
+  → Look for large/prominent text describing the product category
 - manufacturer: Manufacturer or distributor name
 - expiry_date: Expiration date
 - batch_number: Batch or lot number
 - net_weight: Net weight or volume
 
-IMPORTANT: Extract exact text as visible. Set to null if not visible or unclear.
+CRITICAL INSTRUCTIONS:
+- brand_name: Extract ONLY the brand (e.g., "Yamamori", NOT "Yamamori Tonkatsu Sauce")
+- product_description: Extract the product TYPE (e.g., "Tonkatsu Sauce", "Soy Sauce", "Green Tea")
+  → DO NOT leave this null - extract the product category/type that's prominently displayed
 
-Return as JSON with these exact field names."""
+What NOT to include in brand_name:
+❌ Promotional text (e.g., "BUY 5 GET 1 FREE")
+❌ Dosage/strength (e.g., "500 mg")
+❌ Product type (e.g., "Tonkatsu Sauce", "Capsule")
+
+Return as JSON with these exact field names. Set to null if not visible or unclear."""
 
         try:
             # Temporarily reduce logging level for groq module to prevent image data logging
@@ -472,9 +578,14 @@ Return as JSON with these exact field names."""
             result_text = completion.choices[0].message.content
             parsed = json.loads(result_text)
 
+            # Clean brand name
+            brand_name = parsed.get("brand_name")
+            if brand_name:
+                brand_name = self._clean_brand_name(brand_name)
+
             extracted = ExtractedData(
                 registration_number=parsed.get("registration_number"),
-                brand_name=parsed.get("brand_name"),
+                brand_name=brand_name,
                 product_description=parsed.get("product_description"),
                 manufacturer=parsed.get("manufacturer"),
                 expiry_date=parsed.get("expiry_date"),
@@ -535,6 +646,63 @@ Return as JSON with these exact field names."""
             net_weight=groq_fallback_data.net_weight or groq_data.net_weight,
         )
 
+    def _extract_product_keywords(self, vision_results: list[VisionResult], brand_name: str | None) -> str | None:
+        """
+        Extract product description keywords from vision results when structured extraction fails.
+
+        This is a fallback to help identify product type when the LLM misses it.
+
+        Args:
+            vision_results: Raw vision extraction results
+            brand_name: Extracted brand name (to avoid including it in description)
+
+        Returns:
+            Likely product description or None
+        """
+        if not vision_results:
+            return None
+
+        # Common product type keywords that indicate product description
+        product_keywords = [
+            # Sauces
+            'sauce', 'tonkatsu', 'teriyaki', 'soy', 'worcestershire', 'oyster',
+            # Beverages
+            'tea', 'juice', 'drink', 'milk', 'coffee', 'soda',
+            # Drugs
+            'capsule', 'tablet', 'syrup', 'suspension', 'drops',
+            # Food
+            'chips', 'noodles', 'pasta', 'rice', 'oil',
+        ]
+
+        # Extract text blocks that likely contain product description
+        candidates = []
+        for result in vision_results:
+            text = result.text.strip()
+            text_lower = text.lower()
+
+            # Skip if it's the brand name
+            if brand_name and brand_name.lower() in text_lower:
+                continue
+
+            # Check if text contains product keywords
+            for keyword in product_keywords:
+                if keyword in text_lower:
+                    # Found a likely product description
+                    candidates.append((text, result.confidence, len(text.split())))
+                    break
+
+        if not candidates:
+            return None
+
+        # Sort by confidence and word count (prefer longer, confident descriptions)
+        candidates.sort(key=lambda x: (x[1], x[2]), reverse=True)
+
+        # Return the best candidate
+        best_description = candidates[0][0]
+        logger.debug(f"Extracted product keywords fallback: '{best_description}'")
+        return best_description
+
+
     async def extract_product_info(
         self, image_bytes: bytes, mime_type: str = "image/jpeg"
     ) -> tuple[ExtractedData, ProcessingMetadata]:
@@ -555,6 +723,7 @@ Return as JSON with these exact field names."""
 
         # Layer 1: Groq Llama 4 Scout Vision for text extraction
         vision_start = time.time()
+        vision_results = []  # Initialize to prevent UnboundLocalError if _extract_with_groq_vision fails
         try:
             vision_results = await self._extract_with_groq_vision(image_bytes, mime_type)
             raw_text = " ".join([r.text for r in vision_results])
@@ -614,6 +783,14 @@ Return as JSON with these exact field names."""
 
         # Merge results
         final_data = self._merge_results(groq_data, groq_fallback_data)
+
+        # Smart fallback: If product_description is still missing, try to extract from vision results
+        if not final_data.product_description and vision_results:
+            logger.info("Product description missing, attempting keyword extraction from vision results")
+            extracted_keywords = self._extract_product_keywords(vision_results, final_data.brand_name)
+            if extracted_keywords:
+                final_data.product_description = extracted_keywords
+                logger.info(f"Keyword extraction successful: '{extracted_keywords}'")
 
         metadata.total_time = time.time() - start_time
 
