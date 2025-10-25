@@ -16,12 +16,11 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import ORJSONResponse
 from loguru import logger
 
+# Import API routers
+from app.api.products import router as products_router
 from app.core.config import Settings, get_settings
 from app.core.database import Base, engine, test_connection_async
 from app.core.logging import setup_logging
-
-# Import API routers
-from app.api.products import router as products_router
 
 
 @asynccontextmanager
