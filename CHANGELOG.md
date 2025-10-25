@@ -5,6 +5,31 @@ All notable changes to the AI RAG Product Checker project will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2025-10-25
+
+### Fixed
+- **Critical: API Router Registration**
+  - Fixed missing router registration in `app/main.py` that prevented all product endpoints from being accessible
+  - Added `app.include_router(products_router, prefix=settings.api_prefix)` to properly register API routes
+  - All product verification endpoints now work correctly:
+    - `POST /api/v1/products/new-verify-image` - Hybrid vision verification endpoint
+    - `GET /api/v1/products/verify/{product_id}` - ID-based verification endpoint
+
+- **Production Startup Loop Issue**
+  - Fixed infinite restart loop in production environment caused by incompatible configuration
+  - Separated development and production configurations in `run_production.py`:
+    - Development mode: Uses reload without uvloop/httptools (prevents conflicts)
+    - Production mode: Uses uvloop and httptools with multiple workers (optimal performance)
+  - Resolved conflict between hot-reload and high-performance event loop libraries
+  - Production server now starts cleanly with 4 workers and performance optimizations enabled
+
+### Changed
+- **Server Configuration Improvements**
+  - Refactored `run_production.py` for clearer separation of development vs production settings
+  - Development mode now uses single worker with hot reload for better developer experience
+  - Production mode optimized with uvloop, httptools, and multiple workers
+  - Improved configuration comments for better maintainability
+
 ## [1.0.0] - 2025-10-25
 
 ### Added
@@ -123,4 +148,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.0.1]: https://github.com/Neil-urk12/buytimebackend/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Neil-urk12/buytimebackend/releases/tag/v1.0.0
