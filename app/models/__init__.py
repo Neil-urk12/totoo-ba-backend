@@ -1,3 +1,8 @@
+"""SQLAlchemy ORM models for database tables.
+
+This module exports all database model classes used throughout the application.
+Each model represents a table in the PostgreSQL database.
+"""
 from . import drug_industry
 from .cosmetic_industry import CosmeticIndustry
 from .drug_industry import DrugIndustry

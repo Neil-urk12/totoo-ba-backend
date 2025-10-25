@@ -1,14 +1,19 @@
-import os
+"""HTML table extraction utility using BeautifulSoup.
+
+Provides functionality to parse HTML files and extract table data.
+This is a utility script for data extraction tasks.
+"""
+from pathlib import Path
 
 from bs4 import BeautifulSoup
 
 file_path = ""
 
 # Check if the file exists
-if os.path.exists(file_path):
+file = Path(file_path)
+if file.exists():
     try:
-        print("")
-        with open(file_path, encoding="utf-8") as f:
+        with file.open(encoding="utf-8") as f:
             content = f.read()
 
         soup = BeautifulSoup(content, "html.parser")
@@ -16,12 +21,9 @@ if os.path.exists(file_path):
         # Find all tables
         tables = soup.find_all("table")
 
-        print(f"File: {os.path.basename(file_path)}")
-        print(f"Found {len(tables)} table(s)")
 
         # Process each table
-        for i, table in enumerate(tables):
-            print(f"\nTable {i + 1}:")
+        for _i, table in enumerate(tables):
 
             # Get all headers (if any)
             headers = [
@@ -39,10 +41,8 @@ if os.path.exists(file_path):
                     for cell in first_row.find_all(["th", "td"])
                 ]
 
-                print(f"Headers (from first row): {headers}")
-                print(f"Number of columns: {len(headers)}")
 
-    except Exception as e:
-        print(f"Failed to process {file_path}: {e}")
+    except Exception:
+        pass
 else:
-    print(f"File does not exist: {file_path}")
+    pass

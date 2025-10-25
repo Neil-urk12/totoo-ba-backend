@@ -3,8 +3,11 @@ Product verification service layer.
 Handles business logic for product verification, scoring, and ranking.
 """
 
+import difflib
 from dataclasses import dataclass
 from typing import Any
+
+from loguru import logger
 
 from app.api.repository.products_repository import FDAModel, ProductsRepository
 from app.models import (
@@ -55,11 +58,15 @@ class ProductSearchResult:
             result.update(
                 {
                     "registration_number": self.model_instance.registration_number,
+                    "brand_name": self.model_instance.brand_name,
                     "product_name": self.model_instance.product_name,
                     "company_name": self.model_instance.company_name,
                 }
             )
-        elif isinstance(self.model_instance, DrugIndustry) or isinstance(self.model_instance, FoodIndustry) or isinstance(self.model_instance, MedicalDeviceIndustry) or isinstance(self.model_instance, CosmeticIndustry):
+        elif isinstance(
+            self.model_instance,
+            (DrugIndustry, FoodIndustry, MedicalDeviceIndustry, CosmeticIndustry),
+        ):
             result.update(
                 {
                     "license_number": self.model_instance.license_number,
@@ -71,7 +78,7 @@ class ProductSearchResult:
                 {
                     "document_tracking_number": self.model_instance.document_tracking_number,
                     "brand_name": self.model_instance.brand_name,
-                    "applicant": self.model_instance.applicant,
+                    "applicant_company": self.model_instance.applicant_company,
                     "application_type": self.model_instance.application_type,
                 }
             )
@@ -129,10 +136,13 @@ class ProductVerificationService:
         Returns:
             List of search results sorted by relevance
         """
+        logger.debug(f"Searching products with criteria: {list(product_info.keys())}")
+
         # Repository handles data access only
         raw_results = await self.products_repo.fuzzy_search_by_product_info(
             product_info
         )
+        logger.info(f"Repository returned {len(raw_results)} raw results")
 
         # Service layer applies business logic
         scored_results = []
@@ -154,6 +164,16 @@ class ProductVerificationService:
         # Sort by relevance score (highest first)
         scored_results.sort(key=lambda x: x.relevance_score, reverse=True)
 
+        if scored_results:
+            top_score = scored_results[0].relevance_score
+            logger.info(
+                f"Ranked {len(scored_results)} products, "
+                f"top_score={top_score:.2f}, "
+                f"top_type={scored_results[0].product_type}"
+            )
+        else:
+            logger.info("No scored results found")
+
         return scored_results
 
     async def verify_product_by_id(self, product_id: str) -> list[ProductSearchResult]:
@@ -168,8 +188,11 @@ class ProductVerificationService:
         Returns:
             List of matching products with verification scores
         """
+        logger.debug("Service: Verifying product by ID (optimized search)")
+
         # Get raw data from repository using optimized single method (7 queries instead of 21)
         all_matches = await self.products_repo.search_by_any_id(product_id)
+        logger.info(f"Service: Found {len(all_matches)} matches for ID verification")
 
         # Apply business logic for exact vs partial matches
         results = []
@@ -191,7 +214,65 @@ class ProductVerificationService:
         # Sort by relevance (exact matches first)
         results.sort(key=lambda x: x.relevance_score, reverse=True)
 
+        if results:
+            exact_matches = [r for r in results if r.relevance_score >= 1.0]
+            logger.info(
+                f"Service: ID verification complete - "
+                f"exact_matches={len(exact_matches)}, "
+                f"total_results={len(results)}"
+            )
+        else:
+            logger.info("Service: No matches found for product ID")
+
         return results
+
+    def _parse_drug_ingredients(self, ingredient_text: str) -> set[str]:
+        """
+        Parse drug ingredient text into a set of normalized ingredient names.
+
+        Handles formats like:
+        - "Phenylephrine HCI + Chlorphenamine Maleate + Paracetamol"
+        - "Phenylephrine Hydrochloride and Chlorphenamine Maleate"
+
+        Args:
+            ingredient_text: Raw ingredient text
+
+        Returns:
+            Set of normalized ingredient names (lowercase, without salt forms)
+        """
+        import re
+
+        if not ingredient_text:
+            return set()
+
+        # Normalize the text
+        text = ingredient_text.lower().strip()
+
+        # Split by common delimiters
+        # Replace 'and', '+', '/', ',' with a pipe for splitting
+        text = re.sub(r'\s+(?:and|\+|/|,)\s+', '|', text)
+
+        # Split into individual ingredients
+        raw_ingredients = [ing.strip() for ing in text.split('|')]
+
+        # Normalize each ingredient
+        normalized = set()
+        for ingredient in raw_ingredients:
+            if not ingredient:
+                continue
+
+            # Remove salt/acid forms (e.g., "hydrochloride", "maleate", "sulfate", "hcl", "hci")
+            # These are common variations that should be treated as equivalent
+            ingredient = re.sub(r'\s+(hydrochloride|hcl|hci|maleate|sulfate|citrate|phosphate|sodium|potassium)\b', '', ingredient)
+
+            # Remove extra whitespace
+            ingredient = ' '.join(ingredient.split())
+
+            # Only keep meaningful ingredient names (at least 3 chars)
+            if len(ingredient) >= 3:
+                normalized.add(ingredient)
+
+        return normalized
 
     def _calculate_relevance_score(
         self, model_instance: FDAModel, search_info: dict[str, Any]
@@ -206,6 +287,7 @@ class ProductVerificationService:
         Returns:
             Tuple of (relevance_score, matched_fields)
         """
+        logger.debug(f"Calculating relevance score for {type(model_instance).__name__}")
         score = 0.0
         matched_fields = []
 
@@ -213,15 +295,16 @@ class ProductVerificationService:
         model_dict = self._model_to_search_dict(model_instance)
 
         # Registration number match (highest weight)
-        if search_info.get("registration_number") and model_dict.get(
-            "registration_number"
-        ):
-            if (
+        if (
+            search_info.get("registration_number")
+            and model_dict.get("registration_number")
+            and (
                 search_info["registration_number"].lower()
                 in model_dict["registration_number"].lower()
-            ):
-                score += 0.4  # 40% weight for registration number
-                matched_fields.append("registration_number")
+            )
+        ):
+            score += 0.4  # 40% weight for registration number
+            matched_fields.append("registration_number")
 
         # Brand name match with improved scoring
         if search_info.get("brand_name"):
@@ -238,7 +321,32 @@ class ProductVerificationService:
                         break
                     # Core brand substring match (e.g., "C2" in "C2 COOL & CLEAN")
                     if search_brand in field_brand or field_brand in search_brand:
-                        score += 0.4  # 40% weight for brand substring match
+                        # When short search term is in longer brand, prioritize brands with extra matching words
+                        if search_brand in field_brand and len(field_brand) > len(search_brand):
+                            # Base score for the substring match
+                            base_score = 0.40
+
+                            # Major bonus for additional words in brand that match product description
+                            if search_info.get("product_description"):
+                                prod_desc = search_info["product_description"].lower()
+                                brand_words = set(field_brand.split())
+                                desc_words = {word for word in prod_desc.split() if len(word) >= 3}
+                                common_brand_desc = brand_words & desc_words
+
+                                # Remove the search brand itself from the count
+                                common_brand_desc.discard(search_brand)
+
+                                if len(common_brand_desc) >= 2:
+                                    base_score += 0.10
+                                elif len(common_brand_desc) == 1:
+                                    base_score += 0.05
+                        else:
+                            similarity = difflib.SequenceMatcher(None, search_brand, field_brand).ratio()
+
+                            # Base score weighted by similarity: 0.3 to 0.45
+                            base_score = 0.30 + (similarity * 0.15)
+
+                        score += base_score
                         matched_fields.append(field)
                         break
                     # Word-level brand match
@@ -251,7 +359,11 @@ class ProductVerificationService:
 
         # Company/establishment name match
         if search_info.get("company_name"):
-            company_fields = ["company_name", "applicant", "name_of_establishment"]
+            company_fields = [
+                "company_name",
+                "applicant_company",
+                "name_of_establishment",
+            ]
             for field in company_fields:
                 if model_dict.get(field):
                     if search_info["company_name"].lower() in model_dict[field].lower():
@@ -272,34 +384,202 @@ class ProductVerificationService:
                 if model_dict.get(field):
                     # Exact phrase match (highest score)
                     if product_description.lower() in model_dict[field].lower():
-                        score += 0.25  # 25% weight for exact product description match
+                        score += 0.30  # 30% weight for exact product description match
+                        matched_fields.append(field)
+                        break
+                    # Reverse match (database product in search description)
+                    if model_dict[field].lower() in product_description.lower():
+                        score += 0.28  # 28% weight for reverse exact match
                         matched_fields.append(field)
                         break
                     # Word-level tokenized match (handles word order variations)
-                    search_words = set(
+                    search_words = {
                         word.lower()
                         for word in product_description.strip().split()
                         if len(word) >= 3
-                    )
-                    field_words = set(
+                    }
+                    field_words = {
                         word.lower()
                         for word in str(model_dict[field]).strip().split()
                         if len(word) >= 3
-                    )
+                    }
 
                     if search_words and field_words:
                         # Calculate word overlap ratio
                         common_words = search_words & field_words
                         overlap_ratio = len(common_words) / len(search_words)
 
+                        # Also calculate reverse overlap (important for longer database product names)
+                        reverse_overlap_ratio = len(common_words) / len(field_words) if field_words else 0
+
+                        # Use the better of the two ratios
+                        best_overlap = max(overlap_ratio, reverse_overlap_ratio)
+
                         # Award partial score based on word overlap
-                        if overlap_ratio >= 0.5:  # At least 50% of words match
+                        # Lowered threshold to 25% to handle OCR text with extra packaging info
+                        if best_overlap >= 0.25:  # At least 25% of words match
+                            # Enhanced scoring: more generous for high overlap
+                            # 25% = 7.5%, 50% = 15%, 75% = 22.5%, 100% = 30%
                             score += (
-                                0.2 * overlap_ratio
-                            )  # Up to 20% weight for partial match
+                                0.30 * best_overlap
+                            )  # Up to 30% weight for partial match
                             matched_fields.append(field)
                             break
 
+        # Flavor/Key Term Bonus: Boost products where key terms match (e.g., "APPLE", "LEMON", "CHOCOLATE")
+        # This helps differentiate between "APPLE GREEN TEA" and "GREEN APPLE" variants
+        if product_description:
+            # Extract key flavor/descriptor terms (usually important nouns/adjectives)
+            flavor_keywords = {
+                word.lower() for word in product_description.strip().split()
+                if len(word) >= 4 and word.lower() not in {
+                    "flavored", "flavor", "drink", "juice", "plus", "with", "from"
+                }
+            }
+
+            for field in ["product_name", "generic_name"]:
+                if model_dict.get(field) and flavor_keywords:
+                    field_lower = str(model_dict[field]).lower()
+                    matching_keywords = [kw for kw in flavor_keywords if kw in field_lower]
+
+                    if matching_keywords:
+                        # Boost score based on number of matching keywords
+                        keyword_bonus = min(0.15, len(matching_keywords) * 0.05)
+                        score += keyword_bonus
+                        logger.debug(
+                            f"Flavor keyword bonus: +{keyword_bonus:.2f} "
+                            f"(matched: {', '.join(matching_keywords)})"
+                        )
+                        break
+
+        # Drug Product Priority Boost: Strongly prioritize drug products when generic name matches
+        # This is critical for cases like "Solmux" (Carbocisteine drug) vs food products
+        if isinstance(model_instance, DrugProducts):
+            generic_name = model_dict.get("generic_name")
+
+            # Check if generic name appears in extracted product description or brand name
+            if generic_name:
+                generic_lower = generic_name.lower()
+
+                # Check in product description
+                if product_description and generic_lower in product_description.lower():
+                    score += 0.25  # Strong boost for generic name in description
+                    logger.debug(
+                        f"Drug generic match boost: +0.25 ('{generic_name}' in description)"
+                    )
+
+                # Check in brand name (sometimes generic is mentioned)
+                elif search_info.get("brand_name") and generic_lower in search_info["brand_name"].lower():
+                    score += 0.20  # Boost for generic in brand
+                    logger.debug(
+                        f"Drug generic match boost: +0.20 ('{generic_name}' in brand)"
+                    )
+
+                # Multi-ingredient matching for drug products
+                # Critical for drugs like "Neozep Forte" (Phenylephrine + Chlorphenamine + Paracetamol)
+                # vs "Neozep" (Phenylephrine + Chlorphenamine)
+                elif product_description:
+                    # Parse ingredients from both search and database
+                    # Ingredients are typically separated by '+' or 'and'
+                    search_ingredients = self._parse_drug_ingredients(product_description)
+                    db_ingredients = self._parse_drug_ingredients(generic_name)
+
+                    if search_ingredients and db_ingredients:
+                        # Count matching ingredients
+                        matched_ingredients = search_ingredients & db_ingredients
+                        total_search_ingredients = len(search_ingredients)
+                        total_db_ingredients = len(db_ingredients)
+
+                        if matched_ingredients:
+                            # Calculate ingredient match ratio
+                            match_ratio = len(matched_ingredients) / max(total_search_ingredients, total_db_ingredients)
+
+                            # Perfect match: all ingredients match
+                            if match_ratio == 1.0 and total_search_ingredients == total_db_ingredients:
+                                score += 0.35  # Very strong boost for perfect ingredient match
+                                logger.debug(
+                                    f"Perfect drug ingredient match: +0.35 "
+                                    f"({len(matched_ingredients)}/{total_search_ingredients} ingredients)"
+                                )
+                            # Complete match: DB has all searched ingredients (DB may have more)
+                            elif matched_ingredients == search_ingredients:
+                                score += 0.30  # Strong boost when all searched ingredients found
+                                logger.debug(
+                                    f"Complete drug ingredient match: +0.30 "
+                                    f"({len(matched_ingredients)}/{total_search_ingredients} ingredients found)"
+                                )
+                            # Partial match: some ingredients match but not all
+                            elif match_ratio >= 0.6:
+                                boost = 0.15 + (match_ratio * 0.10)  # 0.15-0.25 based on ratio
+                                score += boost
+                                logger.debug(
+                                    f"Partial drug ingredient match: +{boost:.2f} "
+                                    f"({len(matched_ingredients)}/{total_search_ingredients} ingredients, ratio={match_ratio:.2f})"
+                                )
+                            # Weak match: less than 60% ingredients match
+                            else:
+                                # Apply small penalty for incomplete match (missing key ingredients)
+                                penalty = -0.10
+                                score = max(0, score + penalty)
+                                logger.debug(
+                                    f"Incomplete drug ingredient match: {penalty:.2f} penalty "
+                                    f"({len(matched_ingredients)}/{total_search_ingredients} ingredients, ratio={match_ratio:.2f})"
+                                )
+
+                    # Fallback: word-level matching for generic name
+                    else:
+                        search_words = {
+                            word.lower()
+                            for word in product_description.strip().split()
+                            if len(word) >= 3
+                        }
+                        generic_words = {
+                            word.lower()
+                            for word in str(generic_name).strip().split()
+                            if len(word) >= 3
+                        }
+
+                        # If generic name contains terms from product description, boost score
+                        common_words = search_words & generic_words
+                        if len(common_words) >= 2:
+                            # Significant overlap = strong context match
+                            score += 0.15
+                            logger.debug(
+                                f"Drug context bonus: +0.15 ({len(common_words)} matching terms)"
+                            )
+                        elif len(common_words) == 1:
+                            # Some overlap = moderate context match
+                            score += 0.10
+                            logger.debug("Drug context bonus: +0.10 (1 matching term)")
+
+        # Penalty for extra descriptors in database product when extracted data is simpler
+        # E.g., if we extract "C2" but database has "C2 COOL & CLEAN", apply small penalty
+        # This prevents wrong sub-brand matches when vision misses the sub-brand text
+        if search_info.get("brand_name") and model_dict.get("brand_name"):
+            search_brand = search_info["brand_name"].lower().strip()
+            db_brand = model_dict["brand_name"].lower().strip()
+
+            # If database brand is significantly longer and contains search brand as substring
+            if search_brand in db_brand and len(db_brand) > len(search_brand) * 1.5:
+                # Check if product description provides context that matches the extra brand terms
+                has_context_match = False
+                if product_description:
+                    extra_brand_words = set(db_brand.split()) - set(search_brand.split())
+                    desc_words = set(product_description.lower().split())
+                    # If product description contains words from the extra brand terms, it's okay
+                    if extra_brand_words & desc_words:
+                        has_context_match = True
+
+                if not has_context_match:
+                    # Apply minor penalty for potential sub-brand mismatch
+                    penalty = 0.05
+                    score = max(0, score - penalty)
+                    logger.debug(
+                        f"Sub-brand length penalty: -{penalty:.2f} "
+                        f"(search='{search_brand}', db='{db_brand}')"
+                    )
+
+        logger.debug(f"Score calculated: {score:.2f}, matched_fields={matched_fields}")
         return score, matched_fields
 
     def _calculate_id_match_score(
@@ -378,10 +658,14 @@ class ProductVerificationService:
         if isinstance(model_instance, FoodProducts):
             return {
                 "registration_number": model_instance.registration_number,
+                "brand_name": model_instance.brand_name,
                 "product_name": model_instance.product_name,
                 "company_name": model_instance.company_name,
             }
-        if isinstance(model_instance, DrugIndustry) or isinstance(model_instance, FoodIndustry) or isinstance(model_instance, MedicalDeviceIndustry) or isinstance(model_instance, CosmeticIndustry):
+        if isinstance(
+            model_instance,
+            (DrugIndustry, FoodIndustry, MedicalDeviceIndustry, CosmeticIndustry),
+        ):
             return {
                 "license_number": model_instance.license_number,
                 "name_of_establishment": model_instance.name_of_establishment,
@@ -390,9 +674,10 @@ class ProductVerificationService:
             return {
                 "document_tracking_number": model_instance.document_tracking_number,
                 "brand_name": model_instance.brand_name,
-                "applicant": model_instance.applicant,
+                "applicant_company": model_instance.applicant_company,
                 "application_type": model_instance.application_type,
             }
+        return None
 
         # return {}
 
@@ -420,5 +705,6 @@ class ProductVerificationService:
             return "cosmetic_industry"
         if isinstance(model_instance, DrugsNewApplications):
             return "drug_application"
+        return None
 
         # return 'unknown'

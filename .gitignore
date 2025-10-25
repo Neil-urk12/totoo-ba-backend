@@ -6,6 +6,9 @@
 .env.production.local
 .env.production
 
+data/*
+data/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -27,6 +30,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.coverage
 
 # Virtual environments
 venv/

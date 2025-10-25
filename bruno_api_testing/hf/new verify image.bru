@@ -1,21 +1,17 @@
 meta {
-  name: verify-image
+  name: new verify image
   type: http
-  seq: 4
+  seq: 5
 }
 
 post {
-  url: http://localhost:8000/api/v1/products/verify-image
+  url: http://localhost:8000/api/v1/products/new-verify-image
   body: multipartForm
   auth: inherit
 }
 
 body:multipart-form {
   image: @file(/home/dudumisenak18/Pictures/C2-RED-4100222872.jpg)
-}
-
-body:file {
-  file: @file(/home/dudumisenak18/Pictures/C2-RED-4100222872.jpg) @contentType(image/jpeg)
 }
 
 settings {

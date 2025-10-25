@@ -148,14 +148,50 @@ class Settings(BaseSettings):
     )
 
     # ============================================================================
-    # LOGGING CONFIGURATION
+    # LOGGING CONFIGURATION (LOGURU)
     # ============================================================================
     log_level: str = Field(
         default="INFO",
-        description="Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL",
+        description="Global logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL",
+    )
+    log_level_console: str | None = Field(
+        default=None,
+        description="Console log level override. Falls back to log_level if not set.",
+    )
+    log_level_file: str | None = Field(
+        default=None,
+        description="File log level override. Falls back to log_level if not set.",
     )
     log_file: str | None = Field(
         default=None, description="Log file path. None = stdout only"
+    )
+    log_format: str = Field(
+        default="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        description="Loguru log format string",
+    )
+    log_rotation: str = Field(
+        default="500 MB",
+        description="Log rotation trigger: size (e.g., '500 MB') or time (e.g., '1 week', '00:00')",
+    )
+    log_retention: str = Field(
+        default="10 days",
+        description="Log file retention period (e.g., '10 days', '1 month')",
+    )
+    log_compression: str = Field(
+        default="zip",
+        description="Compression format for rotated logs: 'zip', 'gz', 'tar.gz', or empty for none",
+    )
+    log_serialize: bool = Field(
+        default=False,
+        description="Serialize logs to JSON format (useful for log aggregation systems)",
+    )
+    log_backtrace: bool = Field(
+        default=True,
+        description="Enable full exception traceback logging",
+    )
+    log_diagnose: bool = Field(
+        default=False,
+        description="Enable variable values in exception traces (disable in production)",
     )
 
     # ============================================================================
@@ -170,10 +206,12 @@ class Settings(BaseSettings):
             raise ValueError(f"Environment must be one of: {', '.join(allowed)}")
         return v.lower()
 
-    @field_validator("log_level")
+    @field_validator("log_level", "log_level_console", "log_level_file")
     @classmethod
-    def validate_log_level(cls, v: str) -> str:
+    def validate_log_level(cls, v: str | None) -> str | None:
         """Ensure log level is valid"""
+        if v is None or v == "":
+            return None
         allowed = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if v.upper() not in allowed:
             raise ValueError(f"Log level must be one of: {', '.join(allowed)}")
@@ -218,6 +256,18 @@ class Settings(BaseSettings):
         if isinstance(self.cors_origins, str):
             return [origin.strip() for origin in self.cors_origins.split(",")]
         return self.cors_origins
+
+    @computed_field
+    @property
+    def effective_console_log_level(self) -> str:
+        """Get effective console log level (with fallback to global log_level)"""
+        return self.log_level_console or self.log_level
+
+    @computed_field
+    @property
+    def effective_file_log_level(self) -> str:
+        """Get effective file log level (with fallback to global log_level)"""
+        return self.log_level_file or self.log_level
 
     @computed_field
     @property

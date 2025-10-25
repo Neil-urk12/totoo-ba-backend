@@ -1,0 +1,15 @@
+meta {
+  name: newVerify
+  type: http
+  seq: 10
+}
+
+get {
+  url: http://localhost:8000/api/v1/products/verify/FR-4000003862579
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

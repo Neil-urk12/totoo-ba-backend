@@ -1,0 +1,18 @@
+# This file automatically requests reviews from the listed owners.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything
+*       @Neil-urk12
+
+# Backend application code
+app/**  @Neil-urk12
+
+# Database migrations and schema
+migrations/**  @Neil-urk12
+
+# Tests
+tests/**  @Neil-urk12
+
+# Configuration and CI
+pyproject.toml  @Neil-urk12
+.github/**  @Neil-urk12

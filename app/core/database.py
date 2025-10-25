@@ -1,4 +1,9 @@
 # app/core/database.py
+"""Database configuration and session management.
+
+This module provides both synchronous and asynchronous database engines,
+session makers, and connection testing utilities for PostgreSQL using SQLAlchemy.
+"""
 import os
 
 from dotenv import load_dotenv
@@ -9,7 +14,6 @@ from sqlalchemy.pool import NullPool
 
 load_dotenv()
 
-print("Initializing database...")
 
 try:
     DATABASE_URL = os.getenv("DATABASE_URL")
@@ -30,10 +34,8 @@ try:
     )
 
     # Remove the synchronous connection attempt since it causes issues in async contexts
-    print("Database engines created successfully")
 
-except Exception as e:
-    print(f"Failed to create database engines: {e}")
+except Exception:
     sync_engine = None
     async_engine = None
 
@@ -60,6 +62,24 @@ engine = async_engine
 
 
 def get_db():
+    """Get a synchronous database session.
+
+    This is a generator function that yields a database session and ensures
+    proper cleanup after use. Intended for use with FastAPI's Depends.
+
+    Yields:
+        Session: A SQLAlchemy synchronous database session.
+
+    Raises:
+        RuntimeError: If the database connection is not available.
+
+    Example:
+        ```python
+        @app.get("/items")
+        def get_items(db: Session = Depends(get_db)):
+            return db.query(Item).all()
+        ```
+    """
     if SessionLocal is None:
         raise RuntimeError("Database connection not available")
     db = SessionLocal()
@@ -72,40 +92,54 @@ def get_db():
 
 
 def test_connection():
-    """
-    Test the database connection by executing a query on food_products table.
+    """Test the synchronous database connection.
+
+    Executes a simple query on the food_products table to verify that
+    the database connection is working properly.
+
+    Returns:
+        bool: True if the connection is successful, False otherwise.
+
+    Example:
+        ```python
+        if test_connection():
+            print("Database is connected")
+        ```
     """
     try:
         with sync_engine.connect() as conn:
             # Execute a query to test the connection and fetch 10 items from food_products
             result = conn.execute(text("SELECT * FROM food_products LIMIT 10"))
-            rows = result.fetchall()
-            print(
-                f"Database connection successful. Found {len(rows)} records in food_products table."
-            )
+            result.fetchall()
         return True
-    except Exception as e:
-        print(f"Database connection failed: {e}")
+    except Exception:
         return False
 
 
 async def test_connection_async():
-    """
+    """Test the asynchronous database connection.
+
     Async version of test_connection for use in async contexts.
-    Tests both raw SQL and ORM queries.
+    Tests both raw SQL queries and ORM queries to ensure the async
+    database engine is functioning correctly.
+
+    Returns:
+        bool: True if the connection is successful, False otherwise.
+
+    Example:
+        ```python
+        if await test_connection_async():
+            print("Async database is connected")
+        ```
     """
     if async_engine is None or async_session is None:
-        print("❌ Database connection not available - engine or session is None")
         return False
 
     try:
         # Test raw SQL query
         async with async_engine.begin() as conn:
             result = await conn.execute(text("SELECT * FROM food_products LIMIT 10"))
-            rows = result.fetchall()
-            print(
-                f"✅ Raw SQL query successful. Found {len(rows)} records in food_products table."
-            )
+            result.fetchall()
 
         # Test ORM query
         from sqlalchemy import select
@@ -115,18 +149,13 @@ async def test_connection_async():
         async with async_session() as session:
             query = select(FoodProducts).limit(10)
             result = await session.execute(query)
-            products = result.scalars().all()
-            print(
-                f"✅ ORM query successful. Found {len(products)} food products using SQLAlchemy ORM."
-            )
+            result.scalars().all()
 
         return True
-    except Exception as e:
-        print(f"❌ Database connection failed: {e}")
+    except Exception:
         return False
 
 
-print("Database initialization complete.")
 
 # if __name__ == "__main__":
 #     test_connection()
