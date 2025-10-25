@@ -20,6 +20,9 @@ from app.core.config import Settings, get_settings
 from app.core.database import Base, engine, test_connection_async
 from app.core.logging import setup_logging
 
+# Import API routers
+from app.api.products import router as products_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -80,6 +83,9 @@ app.add_middleware(
 
 # GZip compression middleware for response size optimization
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Register API routers
+app.include_router(products_router, prefix=settings.api_prefix)
 
 
 @app.get("/")
