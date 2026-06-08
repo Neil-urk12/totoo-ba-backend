@@ -8,8 +8,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.repository.products_repository import FDAModel, ProductsRepository
+from app.utils.helpers import normalize_string
 from app.models import (
     CosmeticIndustry,
     DrugIndustry,
@@ -19,6 +21,16 @@ from app.models import (
     FoodProducts,
     MedicalDeviceIndustry,
 )
+
+
+@dataclass
+class VerificationOutcome:
+    """Final verdict for text-by-ID product verification."""
+
+    product_id: str
+    is_verified: bool
+    message: str
+    details: dict[str, Any]
 
 
 @dataclass
@@ -176,9 +188,9 @@ class ProductVerificationService:
 
         return scored_results
 
-    async def verify_product_by_id(self, product_id: str) -> list[ProductSearchResult]:
+    async def verify_product_by_id(self, product_id: str) -> VerificationOutcome:
         """
-        Verify a product by its ID with business logic applied.
+        Verify a product by its ID and return a final verification outcome.
 
         Optimized to use search_by_any_id which reduces queries from 21 to 7.
 
@@ -186,15 +198,65 @@ class ProductVerificationService:
             product_id: Product ID to verify (registration/license/tracking number)
 
         Returns:
-            List of matching products with verification scores
+            VerificationOutcome with verdict, message, and details
         """
+        product_id = product_id.strip()
+
+        if not product_id or len(product_id) < 3:
+            logger.warning(f"Invalid product ID provided: length={len(product_id)}")
+            return VerificationOutcome(
+                product_id=product_id,
+                is_verified=False,
+                message=(
+                    f"Invalid product ID: {product_id}. "
+                    "Product ID must be at least 3 characters long."
+                ),
+                details={"error_code": "INVALID_ID"},
+            )
+
+        try:
+            logger.debug(f"Searching for product ID: {product_id}")
+            ranked_results = await self._rank_id_matches(product_id)
+            all_matches = [result.to_dict() for result in ranked_results]
+            logger.debug(f"Found {len(all_matches)} potential matches for product ID")
+            return self._outcome_from_id_matches(product_id, all_matches)
+        except SQLAlchemyError as e:
+            logger.error(f"Database error during verification for ID={product_id}: {e!s}")
+            logger.exception("Full traceback:")
+            return VerificationOutcome(
+                product_id=product_id,
+                is_verified=False,
+                message="Error during verification: Database query failed",
+                details={
+                    "error_code": "DATABASE_ERROR",
+                    "error_message": "Internal server error occurred during verification",
+                    "verification_method": "repository_database_lookup",
+                },
+            )
+        except Exception as e:
+            logger.error(
+                f"Unexpected error during verification for ID={product_id}: "
+                f"{type(e).__name__}: {e!s}"
+            )
+            logger.exception("Full traceback:")
+            return VerificationOutcome(
+                product_id=product_id,
+                is_verified=False,
+                message="Error during verification: Unexpected internal error",
+                details={
+                    "error_code": "INTERNAL_ERROR",
+                    "error_message": "An unexpected error occurred during verification",
+                    "verification_method": "repository_database_lookup",
+                },
+            )
+
+    async def _rank_id_matches(self, product_id: str) -> list[ProductSearchResult]:
+        """Search and rank ID matches from the repository."""
         logger.debug("Service: Verifying product by ID (optimized search)")
 
-        # Get raw data from repository using optimized single method (7 queries instead of 21)
         all_matches = await self.products_repo.search_by_any_id(product_id)
         logger.info(f"Service: Found {len(all_matches)} matches for ID verification")
 
-        # Apply business logic for exact vs partial matches
         results = []
         for model_instance in all_matches:
             score, matched_fields = self._calculate_id_match_score(
@@ -211,7 +273,6 @@ class ProductVerificationService:
                 )
             )
 
-        # Sort by relevance (exact matches first)
         results.sort(key=lambda x: x.relevance_score, reverse=True)
 
         if results:
@@ -225,6 +286,142 @@ class ProductVerificationService:
             logger.info("Service: No matches found for product ID")
 
         return results
+
+    def _outcome_from_id_matches(
+        self, product_id: str, all_matches: list[dict[str, Any]]
+    ) -> VerificationOutcome:
+        """Build a verification outcome from ranked search results."""
+        normalized_product_id = normalize_string(product_id)
+        details: dict[str, Any] = {
+            "verification_method": "repository_database_lookup",
+            "search_results_count": len(all_matches),
+        }
+
+        exact_matches: list[dict[str, Any]] = []
+        partial_matches: list[dict[str, Any]] = []
+
+        for match in all_matches:
+            matched_field = self._exact_id_matched_field(match, normalized_product_id)
+            if matched_field:
+                exact_matches.append(
+                    {
+                        "product": match,
+                        "matched_field": matched_field,
+                        "relevance_score": match.get("relevance_score", 1.0),
+                    }
+                )
+                continue
+
+            relevance = match.get("relevance_score", 0.0)
+            if relevance >= 0.8:
+                partial_matches.append(
+                    {"product": match, "relevance_score": relevance}
+                )
+
+        if exact_matches:
+            best_match = exact_matches[0]
+            product_info = best_match["product"]
+            logger.info(
+                f"Product verified: ID={product_id}, type={product_info.get('type')}, "
+                f"matched_field={best_match['matched_field']}"
+            )
+            details.update(
+                {
+                    "verified_product": product_info,
+                    "matched_field": best_match["matched_field"],
+                    "exact_match": True,
+                    "confidence_score": 100,
+                }
+            )
+            return VerificationOutcome(
+                product_id=product_id,
+                is_verified=True,
+                message=self._verified_message_for_product(product_info),
+                details=details,
+            )
+
+        if partial_matches:
+            best_partial = partial_matches[0]
+            logger.warning(
+                f"Partial match found for ID={product_id}, "
+                f"relevance={best_partial['relevance_score']:.0%}, "
+                f"count={len(partial_matches)}"
+            )
+            details.update(
+                {
+                    "possible_matches": partial_matches[:3],
+                    "exact_match": False,
+                    "confidence_score": int(best_partial["relevance_score"] * 100),
+                }
+            )
+            return VerificationOutcome(
+                product_id=product_id,
+                is_verified=False,
+                message=(
+                    f"⚠️ Possible match found (relevance: "
+                    f"{best_partial['relevance_score']:.0%}). "
+                    "Please verify details manually."
+                ),
+                details=details,
+            )
+
+        logger.info(f"Product ID not found: {product_id}")
+        details.update(
+            {
+                "exact_match": False,
+                "confidence_score": 0,
+                "suggestions": [
+                    "Verify the product ID is correct",
+                    "Check if the product is registered with FDA Philippines",
+                    "Try using the brand name or establishment name instead",
+                ],
+            }
+        )
+        return VerificationOutcome(
+            product_id=product_id,
+            is_verified=False,
+            message=f"❌ Product ID '{product_id}' not found in FDA database",
+            details=details,
+        )
+
+    def _exact_id_matched_field(
+        self, match: dict[str, Any], normalized_product_id: str
+    ) -> str | None:
+        """Return the matched ID field name when the product ID matches exactly."""
+        for field in (
+            "registration_number",
+            "license_number",
+            "document_tracking_number",
+        ):
+            value = match.get(field)
+            if value and normalize_string(value) == normalized_product_id:
+                return field
+        return None
+
+    def _verified_message_for_product(self, product_info: dict[str, Any]) -> str:
+        """Build a human-readable message for a verified product."""
+        product_type = product_info.get("type", "unknown")
+        if product_type == "drug_product":
+            return (
+                f"✅ Verified Drug Product: {product_info.get('brand_name', 'N/A')} "
+                f"({product_info.get('generic_name', 'N/A')})"
+            )
+        if product_type == "food_product":
+            return (
+                f"✅ Verified Food Product: {product_info.get('product_name', 'N/A')} "
+                f"by {product_info.get('company_name', 'N/A')}"
+            )
+        if isinstance(product_type, str) and product_type.endswith("_industry"):
+            return (
+                f"✅ Verified Establishment: "
+                f"{product_info.get('name_of_establishment', 'N/A')}"
+            )
+        if product_type == "drug_application":
+            return (
+                f"✅ Verified Drug Application: {product_info.get('brand_name', 'N/A')} "
+                f"({product_info.get('application_type', 'N/A')})"
+            )
+        return "✅ Product verified in FDA database"
 
     def _parse_drug_ingredients(self, ingredient_text: str) -> set[str]:
         """
@@ -597,44 +794,26 @@ class ProductVerificationService:
         """
         model_dict = self._model_to_search_dict(model_instance)
         matched_fields = []
+        normalized_product_id = normalize_string(product_id)
 
-        # Exact matches get highest score
-        if (
-            model_dict.get("registration_number")
-            and model_dict["registration_number"].lower() == product_id.lower()
-        ):
-            return 1.0, ["registration_number"]
-        if (
-            model_dict.get("license_number")
-            and model_dict["license_number"].lower() == product_id.lower()
-        ):
-            return 1.0, ["license_number"]
-        if (
-            model_dict.get("document_tracking_number")
-            and model_dict["document_tracking_number"].lower() == product_id.lower()
-        ):
-            return 1.0, ["document_tracking_number"]
+        id_fields = (
+            ("registration_number", "registration_number"),
+            ("license_number", "license_number"),
+            ("document_tracking_number", "document_tracking_number"),
+        )
 
-        # Partial matches get lower scores
+        for field_name, matched_field in id_fields:
+            value = model_dict.get(field_name)
+            if value and normalize_string(value) == normalized_product_id:
+                return 1.0, [matched_field]
+
         score = 0.0
-        if (
-            model_dict.get("registration_number")
-            and product_id.lower() in model_dict["registration_number"].lower()
-        ):
-            score = 0.8
-            matched_fields.append("registration_number")
-        elif (
-            model_dict.get("license_number")
-            and product_id.lower() in model_dict["license_number"].lower()
-        ):
-            score = 0.8
-            matched_fields.append("license_number")
-        elif (
-            model_dict.get("document_tracking_number")
-            and product_id.lower() in model_dict["document_tracking_number"].lower()
-        ):
-            score = 0.8
-            matched_fields.append("document_tracking_number")
+        for field_name, matched_field in id_fields:
+            value = model_dict.get(field_name)
+            if value and normalized_product_id in normalize_string(value):
+                score = 0.8
+                matched_fields.append(matched_field)
+                break
 
         return score, matched_fields
 
