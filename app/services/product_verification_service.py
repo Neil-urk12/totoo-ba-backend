@@ -34,6 +34,21 @@ class VerificationOutcome:
 
 
 @dataclass
+class ImageVerificationOutcome:
+    """Final verdict and evidential details for image-based product verification."""
+
+    verification_status: str  # 'verified', 'uncertain', 'not_found', 'invalid'
+    confidence: int
+    matched_product: dict[str, Any] | None
+    extracted_fields: dict[str, Any]
+    ai_reasoning: str
+    alternative_matches: list[dict[str, Any]]
+    processing_metadata: dict[str, Any]
+    is_valid_image: bool = True
+    error_message: str | None = None
+
+
+@dataclass
 class ProductSearchResult:
     """
     Data Transfer Object for product search results with business logic applied.
@@ -121,20 +136,68 @@ class ProductSearchResult:
         return "unknown"
 
 
+def validate_image_content(file_bytes: bytes, mime_type: str) -> bool:
+    """Validate that the file content matches expected image type using magic numbers."""
+    normalized_mime_type = mime_type.strip().lower()
+    magic_numbers = {
+        "image/jpeg": bytes([0xFF, 0xD8, 0xFF]),
+        "image/png": bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+        "image/gif": bytes([0x47, 0x49, 0x46, 0x38]),
+        "image/webp": bytes([0x52, 0x49, 0x46, 0x46]),
+    }
+
+    if normalized_mime_type not in magic_numbers:
+        logger.warning(
+            f"Unsupported MIME type for validation: '{mime_type}' (normalized: '{normalized_mime_type}')"
+        )
+        return False
+
+    expected_header = magic_numbers[normalized_mime_type]
+
+    if len(file_bytes) < len(expected_header):
+        logger.warning(
+            f"File too small for validation: {len(file_bytes)} bytes, need {len(expected_header)} bytes"
+        )
+        return False
+
+    if file_bytes.startswith(expected_header):
+        return True
+
+    search_window = file_bytes[:512]
+    magic_index = search_window.find(expected_header)
+    if magic_index != -1 and magic_index < 100:
+        logger.info(
+            f"Found {normalized_mime_type} magic number at offset {magic_index}"
+        )
+        return True
+
+    actual_header = file_bytes[:len(expected_header)]
+    logger.warning(
+        f"Image validation failed - MIME: '{mime_type}', expected: {expected_header.hex()}, got: {actual_header.hex()}"
+    )
+    return False
+
+
 class ProductVerificationService:
     """
     Service layer for product verification business logic.
     Handles scoring, ranking, and verification logic.
     """
 
-    def __init__(self, products_repo: ProductsRepository):
+    def __init__(
+        self,
+        products_repo: ProductsRepository,
+        vision_service: Any | None = None,
+    ):
         """
-        Initialize service with repository dependency.
+        Initialize service with repository and optional vision dependencies.
 
         Args:
             products_repo: Products repository for data access
+            vision_service: Vision service adapter for packaging image extraction
         """
         self.products_repo = products_repo
+        self.vision_service = vision_service
 
     async def search_and_rank_products(
         self, product_info: dict[str, Any]
@@ -250,7 +313,154 @@ class ProductVerificationService:
                 },
             )
 
+    async def verify_product_by_image(
+        self, image_bytes: bytes, mime_type: str
+    ) -> ImageVerificationOutcome:
+        """
+        Verify a product by analyzing its packaging image using vision extraction
+        and multi-attribute database matching.
+
+        Args:
+            image_bytes: Raw bytes of uploaded product image
+            mime_type: MIME type of the uploaded image
+
+        Returns:
+            ImageVerificationOutcome containing verdict, confidence, and matches
+        """
+        if not validate_image_content(image_bytes, mime_type):
+            return ImageVerificationOutcome(
+                verification_status="invalid",
+                confidence=0,
+                matched_product=None,
+                extracted_fields={},
+                ai_reasoning="File content does not match the declared image format.",
+                alternative_matches=[],
+                processing_metadata={},
+                is_valid_image=False,
+                error_message="File type mismatch. The uploaded file does not match the declared content type.",
+            )
+
+        if self.vision_service is None:
+            raise RuntimeError("Vision service is not configured on verification module")
+
+        extracted_data, processing_metadata = (
+            await self.vision_service.extract_product_info(image_bytes, mime_type)
+        )
+
+        search_dict: dict[str, Any] = {
+            "registration_number": extracted_data.registration_number,
+            "brand_name": extracted_data.brand_name,
+            "product_description": extracted_data.product_description,
+            "generic_name": extracted_data.product_description,
+            "product_name": extracted_data.product_description,
+            "manufacturer": extracted_data.manufacturer,
+            "company_name": extracted_data.manufacturer,
+        }
+
+        if (
+            extracted_data.brand_name
+            and len(extracted_data.brand_name) > 30
+            and not search_dict.get("product_description")
+        ):
+            search_dict["product_description"] = extracted_data.brand_name
+            search_dict["generic_name"] = extracted_data.brand_name
+
+        search_dict = {k: v for k, v in search_dict.items() if v is not None}
+
+        search_results = await self.search_and_rank_products(search_dict)
+        fuzzy_results = [result.to_dict() for result in search_results]
+
+        extracted_fields_dict = {
+            "registration_number": extracted_data.registration_number,
+            "brand_name": extracted_data.brand_name,
+            "product_description": extracted_data.product_description,
+            "manufacturer": extracted_data.manufacturer,
+            "expiry_date": extracted_data.expiry_date,
+            "batch_number": extracted_data.batch_number,
+            "net_weight": extracted_data.net_weight,
+        }
+
+        if not fuzzy_results:
+            confidence = 0
+            reasoning = "No matching products found in database."
+            matched_product = None
+            verification_status = "not_found"
+        else:
+            best_match = fuzzy_results[0]
+            relevance = best_match.get("relevance_score", 0.0)
+            confidence = int(relevance * 100)
+
+            if search_dict.get("brand_name"):
+                db_brand = best_match.get("brand_name", "").upper()
+                extracted_brand = search_dict["brand_name"].upper()
+                if extracted_brand in db_brand or db_brand in extracted_brand:
+                    confidence = min(100, confidence + 10)
+
+            match_type = best_match.get("type", "product")
+            brand = (
+                best_match.get("brand_name")
+                or best_match.get("product_name", "Unknown")
+            )
+
+            if confidence >= 80:
+                reasoning = (
+                    f"Strong match found: {brand} ({match_type}). "
+                    f"Database relevance score: {relevance:.0%}"
+                )
+            elif confidence >= 60:
+                reasoning = (
+                    f"Good match found: {brand} ({match_type}). "
+                    f"Database relevance score: {relevance:.0%}"
+                )
+            else:
+                reasoning = (
+                    f"Weak match: {brand} ({match_type}). "
+                    f"Low database relevance: {relevance:.0%}"
+                )
+
+            matched_product = best_match
+
+            verification_status = "not_found"
+            if confidence > 80:
+                verification_status = "verified"
+            elif confidence > 50:
+                verification_status = "uncertain"
+
+        metadata_dict = {
+            "groq_vision_time_ms": round(
+                getattr(processing_metadata, "groq_vision_time", 0.0) * 1000, 2
+            ),
+            "groq_llama31_time_ms": round(
+                getattr(processing_metadata, "groq_llama31_time", 0.0) * 1000, 2
+            ),
+            "groq_fallback_time_ms": round(
+                getattr(processing_metadata, "groq_fallback_time", 0.0) * 1000, 2
+            ),
+            "total_time_ms": round(
+                getattr(processing_metadata, "total_time", 0.0) * 1000, 2
+            ),
+            "layers_used": getattr(processing_metadata, "layers_used", []),
+            "groq_vision_confidence": round(
+                getattr(processing_metadata, "groq_vision_confidence", 0.0), 2
+            ),
+            "groq_fallback_used": getattr(
+                processing_metadata, "groq_fallback_used", False
+            ),
+        }
+
+        return ImageVerificationOutcome(
+            verification_status=verification_status,
+            confidence=confidence,
+            matched_product=matched_product,
+            extracted_fields=extracted_fields_dict,
+            ai_reasoning=reasoning,
+            alternative_matches=fuzzy_results[:7],
+            processing_metadata=metadata_dict,
+            is_valid_image=True,
+        )
+
     async def _rank_id_matches(self, product_id: str) -> list[ProductSearchResult]:
+
         """Search and rank ID matches from the repository."""
         logger.debug("Service: Verifying product by ID (optimized search)")
 

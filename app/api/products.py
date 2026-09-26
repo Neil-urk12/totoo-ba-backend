@@ -8,7 +8,6 @@ Provides REST API endpoints for verifying products using:
 import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from groq import Groq
 from loguru import logger
 from pydantic import BaseModel
 
@@ -35,13 +34,6 @@ class ProductVerificationResponse(BaseModel):
     is_verified: bool
     message: str
     details: dict | None = None
-
-try:
-    GROQ_AVAILABLE = bool(os.getenv("GROQ_API_KEY"))
-    groq_client = Groq(api_key=os.getenv("GROQ_API_KEY")) if GROQ_AVAILABLE else None
-except Exception:
-    GROQ_AVAILABLE = False
-    groq_client = None
 
 
 
@@ -96,56 +88,7 @@ async def verify_product(
 
 
 
-def validate_image_content(file_bytes: bytes, mime_type: str) -> bool:
-    """
-    Validate that the file content matches the expected image type using magic numbers.
-    Handles common issues with MIME type formatting and multipart boundaries.
-    """
-    # Normalize MIME type: strip whitespace and convert to lowercase
-    normalized_mime_type = mime_type.strip().lower()
-
-    # Define magic numbers for common image formats
-    magic_numbers = {
-        "image/jpeg": bytes([0xFF, 0xD8, 0xFF]),
-        "image/png": bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
-        "image/gif": bytes([0x47, 0x49, 0x46, 0x38]),  # GIF87a or GIF89a
-        "image/webp": bytes([0x52, 0x49, 0x46, 0x46]),  # First 4 bytes of WebP files
-    }
-
-    if normalized_mime_type not in magic_numbers:
-        logger.warning(f"Unsupported MIME type for validation: '{mime_type}' (normalized: '{normalized_mime_type}')")
-        return False
-
-    expected_header = magic_numbers[normalized_mime_type]
-
-    # Check if file is large enough
-    if len(file_bytes) < len(expected_header):
-        logger.warning(f"File too small for validation: {len(file_bytes)} bytes, need {len(expected_header)} bytes")
-        return False
-
-    # Check for exact match at start
-    if file_bytes.startswith(expected_header):
-        return True
-
-    # Fallback: Search for magic number within first 512 bytes (handles multipart boundary issues)
-    search_window = file_bytes[:512]
-    magic_index = search_window.find(expected_header)
-
-    if magic_index != -1 and magic_index < 100:  # Magic number found within reasonable offset
-        logger.info(f"Found {normalized_mime_type} magic number at offset {magic_index} (likely multipart boundary issue)")
-        return True
-
-    # Log validation failure details for debugging
-    actual_header = file_bytes[:len(expected_header)]
-    logger.warning(
-        f"Image validation failed - MIME: '{mime_type}' (normalized: '{normalized_mime_type}'), "
-        f"expected: {expected_header.hex()}, got: {actual_header.hex()}"
-    )
-
-    return False
-
-
-# New hybrid OCR verification endpoint
+# Hybrid vision verification response model
 class HybridVerificationResponse(BaseModel):
     """Response for hybrid vision-based verification.
 
@@ -169,28 +112,25 @@ class HybridVerificationResponse(BaseModel):
 
 
 @router.post(
-    "/new-verify-image",
+    "/verify-image",
     response_model=HybridVerificationResponse,
     summary="Verify Product from Image (Hybrid Vision)",
-    description="Verifies a product using hybrid approach: Groq + Fast Matching",
+    description="Verifies a product using hybrid approach: Groq Vision + Fast Matching",
 )
-async def new_verify_product_image(
+@router.post(
+    "/new-verify-image",
+    response_model=HybridVerificationResponse,
+    summary="Verify Product from Image (Hybrid Vision) [Alias]",
+    description="Backward-compatible alias for /verify-image",
+    include_in_schema=False,
+)
+async def verify_product_image(
     image: UploadFile = File(...),
     verification_service: ProductVerificationService = Depends(
         get_product_verification_service
     ),
 ):
     """Verify a product by analyzing an uploaded image using hybrid Vision approach.
-
-    **Three-Layer Processing Pipeline:**
-    1. **Groq Llama 4 Scout Vision**: Fast image Vision extraction (~1s)
-    2. **Groq Llama 3.1 8B**: Structured field extraction (~0.5s)
-    3. **Fast Fuzzy Matching**: Database matching without LLM (~0.1s)
-    4. **Groq Llama 4 Maverick**: Only for Vision fallback if needed
-
-    **Performance Benefits:**
-    - 10× faster than previous approach (~2s vs ~20s)
-    - 90% cost reduction (Groq-only processing)
 
     Args:
         image: Uploaded image file (max 5MB, JPEG/PNG/GIF/WebP).
@@ -202,12 +142,9 @@ async def new_verify_product_image(
     Raises:
         HTTPException: If image is invalid, too large, or processing fails.
     """
-    from app.services.vision_service import get_vision_service
-
     logger.info("Hybrid Vision verification request received")
-    vision_service = get_vision_service()
 
-    # Validate image file
+    # Validate image MIME type header
     if not image.content_type or not image.content_type.startswith("image/"):
         logger.warning(f"Invalid file type for hybrid Vision: {image.content_type}")
         raise HTTPException(
@@ -226,162 +163,31 @@ async def new_verify_product_image(
             status_code=413, detail="File too large. Maximum size is 5MB."
         )
 
-    import time as time_module
-    endpoint_start = time_module.time()
-
     try:
-        # Read uploaded image as bytes
         image_bytes = await image.read()
+        outcome = await verification_service.verify_product_by_image(
+            image_bytes=image_bytes, mime_type=image.content_type
+        )
 
-        # Validate actual file content
-        if not validate_image_content(image_bytes, image.content_type):
+        if not outcome.is_valid_image:
             raise HTTPException(
                 status_code=400,
-                detail="File type mismatch. The uploaded file does not match the declared content type.",
+                detail=outcome.error_message
+                or "File type mismatch. The uploaded file does not match the declared content type.",
             )
 
-        # Step 1-3: Extract with hybrid vision pipeline (Groq Vision + Groq fallback)
-        logger.info("Starting hybrid vision extraction (Groq Vision + Groq fallback)")
-        extracted_data, processing_metadata = await vision_service.extract_product_info(
-            image_bytes, image.content_type
-        )
-        logger.info(
-            f"Vision extraction complete: layers_used={processing_metadata.layers_used}, "
-            f"total_time={processing_metadata.total_time:.2f}s, "
-            f"groq_vision_confidence={processing_metadata.groq_vision_confidence:.2f}"
-        )
-
-        # Convert to search dict
-        search_dict = {
-            "registration_number": extracted_data.registration_number,
-            "brand_name": extracted_data.brand_name,
-            "product_description": extracted_data.product_description,
-            "generic_name": extracted_data.product_description,  # For drug products
-            "product_name": extracted_data.product_description,  # For food products
-            "manufacturer": extracted_data.manufacturer,
-            "company_name": extracted_data.manufacturer,
-        }
-
-        # If brand_name is very long and contains product description-like text,
-        # also add it to product_description for better matching
-        if extracted_data.brand_name and len(extracted_data.brand_name) > 30 and not search_dict.get("product_description"):
-            # Brand name might have generic/product info mixed in
-            search_dict["product_description"] = extracted_data.brand_name
-            search_dict["generic_name"] = extracted_data.brand_name
-
-        # Remove None values
-        search_dict = {k: v for k, v in search_dict.items() if v is not None}
-
-        # Step 4: Search FDA database
-        import time
-        db_search_start = time.time()
-
-        search_results = await verification_service.search_and_rank_products(
-            search_dict
-        )
-        fuzzy_results = [result.to_dict() for result in search_results]
-
-        time.time() - db_search_start
-
-        # Step 5: AI-assisted intelligent matching (using existing Groq logic)
-        extracted_fields_dict = {
-            "registration_number": extracted_data.registration_number,
-            "brand_name": extracted_data.brand_name,
-            "product_description": extracted_data.product_description,
-            "manufacturer": extracted_data.manufacturer,
-            "expiry_date": extracted_data.expiry_date,
-            "batch_number": extracted_data.batch_number,
-            "net_weight": extracted_data.net_weight,
-        }
-
-        # Use simple rule-based matching without additional LLM calls
-        ai_verify_start = time.time()
-
-        # Simple rule-based matching using database relevance scores
-        if not fuzzy_results:
-            ai_verification = {
-                "matched_product_index": None,
-                "confidence": 0,
-                "extracted_fields": search_dict,
-                "reasoning": "No matching products found in database.",
-            }
-        else:
-            # Use the first result (already ranked by database query)
-            best_match = fuzzy_results[0]
-            relevance = best_match.get("relevance_score", 0.0)
-            confidence = int(relevance * 100)
-
-            # Boost confidence if we have exact brand match
-            if search_dict.get("brand_name"):
-                db_brand = best_match.get("brand_name", "").upper()
-                extracted_brand = search_dict["brand_name"].upper()
-                if extracted_brand in db_brand or db_brand in extracted_brand:
-                    confidence = min(100, confidence + 10)
-
-            # Build reasoning
-            match_type = best_match.get("type", "product")
-            brand = best_match.get("brand_name") or best_match.get("product_name", "Unknown")
-
-            if confidence >= 80:
-                reasoning = f"Strong match found: {brand} ({match_type}). Database relevance score: {relevance:.0%}"
-            elif confidence >= 60:
-                reasoning = f"Good match found: {brand} ({match_type}). Database relevance score: {relevance:.0%}"
-            else:
-                reasoning = f"Weak match: {brand} ({match_type}). Low database relevance: {relevance:.0%}"
-
-            ai_verification = {
-                "matched_product_index": 0,
-                "confidence": confidence,
-                "extracted_fields": search_dict,
-                "reasoning": reasoning,
-            }
-
-        time.time() - ai_verify_start
-
-        # Determine final match
-        matched_product = None
-        if ai_verification["matched_product_index"] is not None:
-            idx = ai_verification["matched_product_index"]
-            if idx < len(fuzzy_results):
-                matched_product = fuzzy_results[idx]
-
-        # Determine verification status
-        verification_status = "not_found"
-        if ai_verification["confidence"] > 80:
-            verification_status = "verified"
-        elif ai_verification["confidence"] > 50:
-            verification_status = "uncertain"
-
-        # Build processing metadata for response
-        metadata_dict = {
-            "groq_vision_time_ms": round(processing_metadata.groq_vision_time * 1000, 2),
-            "groq_llama31_time_ms": round(processing_metadata.groq_llama31_time * 1000, 2),
-            "groq_fallback_time_ms": round(processing_metadata.groq_fallback_time * 1000, 2),
-            "total_time_ms": round(processing_metadata.total_time * 1000, 2),
-            "layers_used": processing_metadata.layers_used,
-            "groq_vision_confidence": round(processing_metadata.groq_vision_confidence, 2),
-            "groq_fallback_used": processing_metadata.groq_fallback_used,
-        }
-
-        endpoint_total_time = time_module.time() - endpoint_start
-        logger.success(
-            f"Hybrid verification complete: status={verification_status}, "
-            f"confidence={ai_verification['confidence']}%, "
-            f"endpoint_time={endpoint_total_time:.2f}s"
-        )
-
         return HybridVerificationResponse(
-            verification_status=verification_status,
-            confidence=ai_verification["confidence"],
-            matched_product=matched_product,
-            extracted_fields=extracted_fields_dict,
-            ai_reasoning=ai_verification["reasoning"],
-            alternative_matches=fuzzy_results[:7],
-            processing_metadata=metadata_dict,
+            verification_status=outcome.verification_status,
+            confidence=outcome.confidence,
+            matched_product=outcome.matched_product,
+            extracted_fields=outcome.extracted_fields,
+            ai_reasoning=outcome.ai_reasoning,
+            alternative_matches=outcome.alternative_matches,
+            processing_metadata=outcome.processing_metadata,
         )
-
+    except HTTPException:
+        raise
     except Exception as e:
-        # Log the detailed error server-side for debugging
         logger.error(f"Hybrid vision verification failed: {str(e)}")
         logger.exception("Full traceback:")
         raise HTTPException(
@@ -390,6 +196,7 @@ async def new_verify_product_image(
         ) from e
     finally:
         await image.close()
+
 
 
 __all__ = ["router"]

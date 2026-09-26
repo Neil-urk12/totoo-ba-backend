@@ -88,16 +88,27 @@ def get_products_repository_transactional(
     return ProductsRepository(session=session)
 
 
+def get_vision_service_dependency():
+    """Dependency that provides the HybridVisionService instance."""
+    from app.services.vision_service import get_vision_service
+
+    return get_vision_service()
+
+
 def get_product_verification_service(
     products_repo: ProductsRepository = Depends(get_products_repository),
+    vision_service=Depends(get_vision_service_dependency),
 ) -> ProductVerificationService:
     """
     Dependency that provides a ProductVerificationService with business logic.
 
     Args:
         products_repo: Repository for data access
+        vision_service: Vision service adapter for packaging extraction
 
     Returns:
         ProductVerificationService: Service instance with business logic
     """
-    return ProductVerificationService(products_repo=products_repo)
+    return ProductVerificationService(
+        products_repo=products_repo, vision_service=vision_service
+    )
