@@ -5,7 +5,6 @@ Provides REST API endpoints for verifying products using:
 - Image-based verification using Groq AI vision models
 - Hybrid Vision verification using Groq
 """
-import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from loguru import logger
@@ -34,8 +33,6 @@ class ProductVerificationResponse(BaseModel):
     is_verified: bool
     message: str
     details: dict | None = None
-
-
 
 
 # Product verification endpoint (final)
@@ -76,16 +73,6 @@ async def verify_product(
         message=outcome.message,
         details=outcome.details,
     )
-
-
-
-
-
-
-
-
-
-
 
 
 # Hybrid vision verification response model
@@ -196,7 +183,6 @@ async def verify_product_image(
         ) from e
     finally:
         await image.close()
-
 
 
 __all__ = ["router"]
