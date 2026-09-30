@@ -19,8 +19,6 @@ from app.models import (
     MedicalDeviceIndustry,
 )
 
-from .database_repository import MultiTableRepository
-
 # Type aliases for better type safety
 ProductModel = DrugProducts | FoodProducts
 EstablishmentModel = (
@@ -30,24 +28,15 @@ ApplicationModel = DrugsNewApplications
 FDAModel = ProductModel | EstablishmentModel | ApplicationModel
 
 
-class ProductsRepository(MultiTableRepository):
+class ProductsRepository:
     """
     Repository for product verification and FDA database operations.
     Handles searches across all FDA-related tables.
     """
 
     def __init__(self, session: AsyncSession):
-        """Initialize products repository with all relevant models and session."""
-        super().__init__(session)
-        self.models = {
-            "drug_products": DrugProducts,
-            "food_products": FoodProducts,
-            "drug_industry": DrugIndustry,
-            "food_industry": FoodIndustry,
-            "medical_device_industry": MedicalDeviceIndustry,
-            "cosmetic_industry": CosmeticIndustry,
-            "drug_applications": DrugsNewApplications,
-        }
+        """Initialize products repository with a database session."""
+        self.session = session
 
     async def search_across_tables(
         self, search_criteria: dict[str, Any]
@@ -804,79 +793,6 @@ class ProductsRepository(MultiTableRepository):
 
         return matches
 
-    async def search_by_registration_number(
-        self, registration_number: str
-    ) -> list[FDAModel]:
-        """
-        Search specifically by registration number across relevant tables.
-
-        Args:
-            registration_number: The registration number to search for
-
-        Returns:
-            List of matching products with their details
-        """
-        search_criteria = {"registration_number": registration_number}
-        all_results = await self.search_across_tables(search_criteria)
-
-        # Flatten results
-        matches = []
-        for _table_name, results in all_results.items():
-            matches.extend(results)
-
-        return matches
-
-    async def search_by_license_number(
-        self, license_number: str
-    ) -> list[EstablishmentModel]:
-        """
-        Search specifically by license number across establishment tables.
-
-        Args:
-            license_number: The license number to search for
-
-        Returns:
-            List of matching establishments with their details
-        """
-        search_criteria = {"license_number": license_number}
-        all_results = await self.search_across_tables(search_criteria)
-
-        # Filter only establishment results (not products)
-        establishment_tables = [
-            "drug_industry",
-            "food_industry",
-            "medical_device_industry",
-            "cosmetic_industry",
-        ]
-        matches = []
-
-        for table_name in establishment_tables:
-            if table_name in all_results:
-                matches.extend(all_results[table_name])
-
-        return matches
-
-    async def search_by_document_tracking_number(
-        self, tracking_number: str
-    ) -> list[DrugsNewApplications]:
-        """
-        Search specifically by document tracking number in applications.
-
-        Args:
-            tracking_number: The document tracking number to search for
-
-        Returns:
-            List of matching applications with their details
-        """
-        search_criteria = {"document_tracking_number": tracking_number}
-        all_results = await self.search_across_tables(search_criteria)
-
-        matches = []
-        if "drug_applications" in all_results:
-            matches.extend(all_results["drug_applications"])
-
-        return matches
-
     async def fuzzy_search_by_product_info(
         self, product_info: dict[str, Any]
     ) -> list[FDAModel]:
@@ -909,88 +825,3 @@ class ProductsRepository(MultiTableRepository):
         logger.info(f"Repository: Fuzzy search complete - {len(matches)} total matches")
 
         return matches
-
-    def _model_to_dict(
-        self, model_instance: FDAModel, table_name: str
-    ) -> dict[str, Any]:
-        """
-        Convert a model instance to dictionary format for backward compatibility.
-
-        Args:
-            model_instance: SQLAlchemy model instance
-            table_name: Name of the source table
-
-        Returns:
-            Dictionary representation of the model
-        """
-        # Base fields that all models have
-        result = {
-            "id": model_instance.id,
-            "table_name": table_name,
-            "source_table": table_name,
-        }
-
-        # Add model-specific fields based on type
-        if isinstance(model_instance, DrugProducts):
-            result.update(
-                {
-                    "registration_number": model_instance.registration_number,
-                    "brand_name": model_instance.brand_name,
-                    "generic_name": model_instance.generic_name,
-                    "manufacturer": model_instance.manufacturer,
-                    "type": "drug_product",
-                }
-            )
-        elif isinstance(model_instance, FoodProducts):
-            result.update(
-                {
-                    "registration_number": model_instance.registration_number,
-                    "product_name": model_instance.product_name,
-                    "company_name": model_instance.company_name,
-                    "type": "food_product",
-                }
-            )
-        elif isinstance(model_instance, DrugIndustry):
-            result.update(
-                {
-                    "license_number": model_instance.license_number,
-                    "name_of_establishment": model_instance.name_of_establishment,
-                    "type": "drug_industry",
-                }
-            )
-        elif isinstance(model_instance, FoodIndustry):
-            result.update(
-                {
-                    "license_number": model_instance.license_number,
-                    "name_of_establishment": model_instance.name_of_establishment,
-                    "type": "food_industry",
-                }
-            )
-        elif isinstance(model_instance, MedicalDeviceIndustry):
-            result.update(
-                {
-                    "license_number": model_instance.license_number,
-                    "name_of_establishment": model_instance.name_of_establishment,
-                    "type": "medical_device_industry",
-                }
-            )
-        elif isinstance(model_instance, CosmeticIndustry):
-            result.update(
-                {
-                    "license_number": model_instance.license_number,
-                    "name_of_establishment": model_instance.name_of_establishment,
-                    "type": "cosmetic_industry",
-                }
-            )
-        elif isinstance(model_instance, DrugsNewApplications):
-            result.update(
-                {
-                    "document_tracking_number": model_instance.document_tracking_number,
-                    "brand_name": model_instance.brand_name,
-                    "applicant_company": model_instance.applicant_company,
-                    "application_type": model_instance.application_type,
-                    "type": "drug_application",
-                }
-            )
-
-        return result

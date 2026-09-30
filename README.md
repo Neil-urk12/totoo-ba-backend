@@ -43,14 +43,12 @@ Typical performance improvements with uvloop + httptools:
 │   │   ├── deps.py
 │   │   ├── products.py
 │   │   └── repository/
-│   │       ├── database_repository.py
 │   │       └── products_repository.py
 │   ├── core/
 │   │   ├── config.py
 │   │   ├── database.py
 │   │   └── logging.py
 │   ├── models/
-│   ├── schemas/
 │   ├── services/
 │   │   ├── vision_service.py
 │   │   ├── product_verification_service.py
@@ -65,7 +63,6 @@ Typical performance improvements with uvloop + httptools:
 - **app/api**: API endpoints and dependency injection.
 - **app/core**: Core application settings, database configuration, and logging.
 - **app/models**: SQLAlchemy database models.
-- **app/schemas**: Pydantic schemas for data validation and serialization.
 - **app/services**: Business logic, including product verification and AI vision services.
 - **app/utils**: Helper functions.
 - **bruno_api_testing**: API tests using Bruno.
@@ -117,37 +114,8 @@ APP_VERSION=1.0.0
 ENVIRONMENT=development
 DEBUG=True
 
-# Security Settings
-SECRET_KEY=your-super-secret-key-here
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=1440
-
 # CORS Configuration
 CORS_ORIGINS=["http://localhost:5173", "http://localhost:8000"]
-
-# FDA Scraper Configuration
-FDA_BASE_URL=https://verification.fda.gov.ph
-FDA_TIMEOUT=30
-FDA_MAX_RETRIES=3
-FDA_RATE_LIMIT_DELAY=1.0
-FDA_MAX_PAGES_PER_RUN=10
-
-# Business Databank Configuration
-BUSINESS_DATABANK_URL=https://databank.business.gov.ph
-SEC_API_URL=https://portal.sec.gov.ph
-SEC_API_KEY=your-sec-api-key-here
-
-# Fuzzy Matching Configuration
-FUZZY_MATCH_THRESHOLD=80
-FUZZY_MATCH_LIMIT=5
-
-# Caching Configuration
-CACHE_ENABLED=True
-CACHE_TTL_MINUTES=30
-CACHE_MAX_SIZE=1000
-
-# Background Tasks Configuration
-BACKGROUND_TASK_TIMEOUT=300
 
 # Logging Configuration
 LOG_LEVEL=INFO
@@ -241,7 +209,6 @@ For production deployment, ensure the following:
 
 - Set `ENVIRONMENT=production`
 - Set `DEBUG=False`
-- Use a strong `SECRET_KEY`
 - Configure proper logging
 
 Example production command:

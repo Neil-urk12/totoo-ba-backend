@@ -39,24 +39,6 @@ async def get_async_session() -> AsyncGenerator[AsyncSession]:
             await session.close()
 
 
-async def get_transactional_session() -> AsyncGenerator[AsyncSession]:
-    """
-    Dependency that provides a session WITHOUT automatic commit.
-    Use this when you need manual transaction control in service layer.
-
-    Yields:
-        AsyncSession: Database session for manual transaction management
-    """
-    if async_session is None:
-        raise RuntimeError("Database connection not available - async_session is None")
-
-    async with async_session() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
-
-
 def get_products_repository(
     session: AsyncSession = Depends(get_async_session),
 ) -> ProductsRepository:
@@ -65,22 +47,6 @@ def get_products_repository(
 
     Args:
         session: Database session with auto-commit/rollback
-
-    Returns:
-        ProductsRepository: Repository instance with session
-    """
-    return ProductsRepository(session=session)
-
-
-def get_products_repository_transactional(
-    session: AsyncSession = Depends(get_transactional_session),
-) -> ProductsRepository:
-    """
-    Dependency that provides a ProductsRepository with manual transaction control.
-    Use this when you need to handle commits/rollbacks manually in service layer.
-
-    Args:
-        session: Database session for manual transaction management
 
     Returns:
         ProductsRepository: Repository instance with session

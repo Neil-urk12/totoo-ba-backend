@@ -1,5 +1,4 @@
 # app/core/config.py
-import secrets
 from functools import lru_cache
 
 from pydantic import Field, computed_field, field_validator
@@ -45,33 +44,6 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://postgres:postgres@localhost:5432/product_checker",
         description="Async PostgreSQL connection string",
     )
-    database_echo: bool = Field(default=False, description="Log all SQL statements")
-    database_pool_size: int = Field(
-        default=20, ge=1, le=100, description="Database connection pool size"
-    )
-    database_max_overflow: int = Field(
-        default=10, ge=0, le=50, description="Maximum overflow connections"
-    )
-    database_pool_timeout: int = Field(
-        default=30, ge=1, description="Connection pool timeout in seconds"
-    )
-    database_pool_recycle: int = Field(
-        default=3600, ge=300, description="Recycle connections after N seconds"
-    )
-
-    # ============================================================================
-    # SECURITY SETTINGS
-    # ============================================================================
-    secret_key: str = Field(
-        default_factory=lambda: secrets.token_urlsafe(32),
-        description="Secret key for JWT encoding - MUST be overridden in production",
-    )
-    algorithm: str = "HS256"
-    access_token_expire_minutes: int = Field(
-        default=60 * 24,  # 24 hours
-        ge=1,
-        description="JWT token expiration time in minutes",
-    )
 
     # ============================================================================
     # CORS CONFIGURATION
@@ -83,69 +55,6 @@ class Settings(BaseSettings):
     cors_allow_credentials: bool = True
     cors_allow_methods: list[str] = ["*"]
     cors_allow_headers: list[str] = ["*"]
-
-    # ============================================================================
-    # FDA SCRAPER CONFIGURATION
-    # ============================================================================
-    fda_base_url: str = "https://verification.fda.gov.ph"
-    fda_timeout: int = Field(
-        default=30, ge=5, le=120, description="HTTP request timeout in seconds"
-    )
-    fda_max_retries: int = Field(
-        default=3, ge=0, le=10, description="Maximum retry attempts for failed requests"
-    )
-    fda_rate_limit_delay: float = Field(
-        default=1.0,
-        ge=0.0,
-        le=10.0,
-        description="Delay between scraping requests in seconds",
-    )
-    fda_max_pages_per_run: int = Field(
-        default=10, ge=1, le=1000, description="Maximum pages to scrape per run"
-    )
-
-    # ============================================================================
-    # BUSINESS DATABANK CONFIGURATION
-    # ============================================================================
-    business_databank_url: str = "https://databank.business.gov.ph"
-    sec_api_url: str = "https://portal.sec.gov.ph"
-    sec_api_key: str | None = Field(
-        default=None, description="SEC API key for business verification"
-    )
-
-    # ============================================================================
-    # FUZZY MATCHING CONFIGURATION
-    # ============================================================================
-    fuzzy_match_threshold: int = Field(
-        default=80,
-        ge=0,
-        le=100,
-        description="Minimum similarity score for fuzzy matching (0-100)",
-    )
-    fuzzy_match_limit: int = Field(
-        default=5,
-        ge=1,
-        le=20,
-        description="Maximum number of fuzzy match results to return",
-    )
-
-    # ============================================================================
-    # CACHING CONFIGURATION
-    # ============================================================================
-    cache_enabled: bool = Field(default=True, description="Enable in-memory caching")
-    cache_ttl_minutes: int = Field(
-        default=30, ge=1, le=1440, description="Cache time-to-live in minutes"
-    )
-    cache_max_size: int = Field(
-        default=1000, ge=10, le=100000, description="Maximum number of cached items"
-    )
-
-    # ============================================================================
-    # BACKGROUND TASKS CONFIGURATION
-    # ============================================================================
-    background_task_timeout: int = Field(
-        default=300, ge=10, le=3600, description="Background task timeout in seconds"
-    )
 
     # ============================================================================
     # LOGGING CONFIGURATION (LOGURU)
@@ -242,12 +151,6 @@ class Settings(BaseSettings):
     def is_development(self) -> bool:
         """Check if running in development environment"""
         return self.environment == "development"
-
-    @computed_field
-    @property
-    def database_url_sync(self) -> str:
-        """Synchronous database URL for Alembic migrations"""
-        return self.database_url.replace("+asyncpg", "")
 
     @computed_field
     @property

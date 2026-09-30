@@ -465,23 +465,6 @@ Format: {{"registration_number": "...", "brand_name": "...", ...}}"""
             raise RuntimeError(f"Groq Llama 3.1 8B extraction failed: {e}") from e
 
 
-    def _crop_low_confidence_regions(
-        self, image_bytes: bytes, ocr_results: list[VisionResult]
-    ) -> bytes:
-        """
-        Crop image to focus on low-confidence regions for Groq fallback.
-
-        Args:
-            image_bytes: Original image bytes
-            ocr_results: OCR results with bounding boxes
-
-        Returns:
-            Cropped image bytes focusing on problematic areas
-        """
-        # For now, return original image
-        # In production, implement intelligent cropping based on bounding boxes
-        return image_bytes
-
     async def _extract_with_groq_fallback(
         self, image_bytes: bytes, mime_type: str, raw_text: str
     ) -> ExtractedData:
