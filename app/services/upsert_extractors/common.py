@@ -1,19 +1,22 @@
-"""Shared HTML parsing, cleanup, retry, and transaction helpers for food imports."""
+"""Shared parsing, cleanup, loading, and orchestration for food imports."""
 
 import asyncio
 import re
 import traceback
+from collections.abc import Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 from bs4 import BeautifulSoup
 from loguru import logger
-from sqlalchemy.exc import OperationalError
+from sqlalchemy import select, text
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError, OperationalError
 
-from app.core.database import async_session
+from app.core.database import Base, async_session, engine
 
 
 def retry_on_failure(max_retries: int = 3, delay: float = 1.0):
@@ -239,3 +242,251 @@ async def get_session_with_rollback():
         raise
     finally:
         await session.close()
+
+
+@retry_on_failure(max_retries=3, delay=1.0)
+async def create_tables():
+    """Create database tables if they don't exist"""
+    logger.info("🔨 Creating database tables...")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("✅ Tables created successfully")
+    except Exception as e:
+        logger.error(f"Failed to create tables: {e}")
+        logger.debug(traceback.format_exc())
+        raise
+
+
+@retry_on_failure(max_retries=3, delay=2.0)
+async def bulk_upsert(
+    model: type,
+    key: str,
+    fields: Sequence[str],
+    data: list[dict[str, Any]],
+    batch_size: int = 500,
+):
+    """
+    Insert data into database with conflict resolution (upsert).
+    Uses PostgreSQL's ON CONFLICT clause for efficient upserts.
+    Includes comprehensive error handling and progress tracking.
+
+    Args:
+        data: List of dictionaries containing row data
+        batch_size: Number of rows to insert per batch
+    """
+    logger.info(f"💾 Inserting {len(data)} rows into database...")
+
+    if not data:
+        logger.warning("No data to insert")
+        return
+
+    total_inserted = 0
+    total_failed = 0
+    failed_records = []
+
+    try:
+        async with get_session_with_rollback() as session:
+            for i in range(0, len(data), batch_size):
+                batch = data[i : i + batch_size]
+                batch_num = (i // batch_size) + 1
+                total_batches = (len(data) + batch_size - 1) // batch_size
+
+                try:
+                    # Validate batch data
+                    valid_batch = []
+                    for idx, record in enumerate(batch):
+                        try:
+                            # Check for required fields
+                            if not record.get(key):
+                                logger.warning(
+                                    f"Skipping record {i + idx}: missing {key}"
+                                )
+                                failed_records.append(record)
+                                total_failed += 1
+                                continue
+
+                            cleaned_record = {
+                                field: record.get(field) for field in fields
+                            }
+
+                            valid_batch.append(cleaned_record)
+
+                        except Exception as e:
+                            logger.warning(f"Error validating record {i + idx}: {e}")
+                            failed_records.append(record)
+                            total_failed += 1
+                            continue
+
+                    if not valid_batch:
+                        logger.warning(
+                            f"Batch {batch_num} has no valid records, skipping"
+                        )
+                        continue
+
+                    # PostgreSQL INSERT ... ON CONFLICT (upsert)
+                    stmt = insert(model).values(valid_batch)
+
+                    # Update non-key fields on conflict
+                    update_stmt = stmt.on_conflict_do_update(
+                        index_elements=[key],
+                        set_={
+                            field: getattr(stmt.excluded, field)
+                            for field in fields
+                            if field != key
+                        },
+                    )
+
+                    await session.execute(update_stmt)
+                    await session.flush()
+
+                    total_inserted += len(valid_batch)
+                    logger.info(
+                        f"✅ Batch {batch_num}/{total_batches} processed ({len(valid_batch)} rows)"
+                    )
+
+                except IntegrityError as e:
+                    logger.error(f"Integrity error in batch {batch_num}: {e}")
+                    total_failed += len(batch)
+                    failed_records.extend(batch)
+                    await session.rollback()
+                    continue
+
+                except Exception as e:
+                    logger.error(f"Error processing batch {batch_num}: {e}")
+                    logger.debug(traceback.format_exc())
+                    total_failed += len(batch)
+                    failed_records.extend(batch)
+                    await session.rollback()
+                    continue
+
+        # Log summary
+        logger.info(f"\n{'=' * 60}")
+        logger.info("🎉 Processing complete!")
+        logger.info(f"  ✅ Successfully processed: {total_inserted} rows")
+        if total_failed > 0:
+            logger.warning(f"  ⚠️  Failed: {total_failed} rows")
+
+            # Save failed records to file for review
+            if failed_records:
+                failed_file = (
+                    f"failed_records_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
+                )
+                try:
+                    df_failed = pd.DataFrame(failed_records)
+                    df_failed.to_csv(failed_file, index=False)
+                    logger.info(f"  💾 Failed records saved to: {failed_file}")
+                except Exception as e:
+                    logger.error(f"Could not save failed records: {e}")
+        logger.info(f"{'=' * 60}\n")
+
+    except Exception as e:
+        logger.error(f"❌ Critical error during bulk upsert: {e}")
+        logger.debug(traceback.format_exc())
+        raise
+
+
+@retry_on_failure(max_retries=3, delay=1.0)
+async def verify_insertion(model: type, key: str, label_field: str, limit: int = 5):
+    """Verify data was inserted correctly by querying a few rows"""
+    logger.info(f"🔍 Verifying insertion (showing {limit} rows)...")
+
+    try:
+        async with async_session() as session:
+            result = await session.execute(select(model).limit(limit))
+            rows = result.scalars().all()
+
+            if rows:
+                logger.info(f"✅ Found {len(rows)} rows in database")
+                for row in rows:
+                    logger.info(f"  - {getattr(row, key)}: {getattr(row, label_field)}")
+            else:
+                logger.warning("⚠️  No rows found in database")
+    except Exception as e:
+        logger.error(f"Error during verification: {e}")
+        logger.debug(traceback.format_exc())
+        raise
+
+
+@retry_on_failure(max_retries=3, delay=1.0)
+async def get_record_count(model: type) -> int:
+    """Get total number of records in database"""
+    try:
+        async with async_session() as session:
+            result = await session.execute(select(text("COUNT(*)")).select_from(model))
+            count = result.scalar()
+            return count or 0
+    except Exception as e:
+        logger.error(f"Error getting record count: {e}")
+        return 0
+
+
+async def process_files(
+    paths: list[Path],
+    extract: Callable[[str], pd.DataFrame],
+    transform: Callable[[pd.DataFrame], pd.DataFrame],
+    *,
+    upsert: Callable[..., Awaitable[None]],
+    verify: Callable[..., Awaitable[None]],
+    count: Callable[[], Awaitable[int]],
+    batch: bool = False,
+):
+    """Extract and load files, continuing after individual file failures."""
+    await create_tables()
+    if not paths:
+        logger.warning("⚠️  No matching files found")
+        return
+
+    all_data = []
+    successful_files = 0
+    failed_files = []
+    for idx, file_path in enumerate(paths, 1):
+        logger.info(f"Processing file {idx}/{len(paths)}: {file_path.name}")
+        try:
+            df = extract(str(file_path))
+            if df.empty:
+                logger.warning(f"⚠️  No data extracted: {file_path.name}")
+                failed_files.append((file_path.name, "No data extracted"))
+                continue
+            df_clean = transform(df)
+            if df_clean.empty:
+                logger.warning(f"⚠️  No valid data after cleaning: {file_path.name}")
+                failed_files.append((file_path.name, "No valid data after cleaning"))
+                continue
+            all_data.extend(df_clean.to_dict("records"))
+            successful_files += 1
+            logger.info(f"✅ Successfully processed {file_path.name}")
+        except Exception as e:
+            logger.error(f"❌ Failed to process {file_path.name}: {e}")
+            logger.debug(traceback.format_exc())
+            failed_files.append((file_path.name, str(e)))
+            continue
+
+    logger.info("📊 File Processing Summary:")
+    logger.info(f"  Total files: {len(paths)}")
+    logger.info(f"  Successful: {successful_files}")
+    logger.info(f"  Failed: {len(failed_files)}")
+    for filename, reason in failed_files:
+        logger.warning(f"    - {filename}: {reason}")
+    if not all_data:
+        logger.warning("⚠️  No data extracted from any files")
+        return
+
+    logger.info(f"📊 Total rows extracted from all files: {len(all_data)}")
+    try:
+        await upsert(all_data, batch_size=500)
+    except Exception as e:
+        logger.error(f"Failed during bulk insert: {e}")
+        logger.debug(traceback.format_exc())
+
+    try:
+        await verify(limit=10 if batch else 5)
+    except Exception as e:
+        logger.warning(f"Verification failed: {e}")
+        if batch:
+            return
+    try:
+        total = await count()
+        logger.info(f"📊 Total records in database: {total}")
+    except Exception as e:
+        logger.warning(f"Could not get record count: {e}")
