@@ -4,7 +4,7 @@ Handles business logic for product verification, scoring, and ranking.
 """
 
 import difflib
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from loguru import logger
@@ -48,6 +48,40 @@ class ImageVerificationOutcome:
     error_message: str | None = None
 
 
+def model_fields(model_instance: FDAModel) -> dict[str, Any]:
+    """Project model fields shared by scoring and API responses."""
+    if isinstance(model_instance, DrugProducts):
+        return {
+            "registration_number": model_instance.registration_number,
+            "brand_name": model_instance.brand_name,
+            "generic_name": model_instance.generic_name,
+            "manufacturer": model_instance.manufacturer,
+        }
+    if isinstance(model_instance, FoodProducts):
+        return {
+            "registration_number": model_instance.registration_number,
+            "brand_name": model_instance.brand_name,
+            "product_name": model_instance.product_name,
+            "company_name": model_instance.company_name,
+        }
+    if isinstance(
+        model_instance,
+        (DrugIndustry, FoodIndustry, MedicalDeviceIndustry, CosmeticIndustry),
+    ):
+        return {
+            "license_number": model_instance.license_number,
+            "name_of_establishment": model_instance.name_of_establishment,
+        }
+    if isinstance(model_instance, DrugsNewApplications):
+        return {
+            "document_tracking_number": model_instance.document_tracking_number,
+            "brand_name": model_instance.brand_name,
+            "applicant_company": model_instance.applicant_company,
+            "application_type": model_instance.application_type,
+        }
+    return {}
+
+
 @dataclass
 class ProductSearchResult:
     """
@@ -71,44 +105,7 @@ class ProductSearchResult:
             "type": self.product_type,
         }
 
-        # Add model-specific fields
-        if isinstance(self.model_instance, DrugProducts):
-            result.update(
-                {
-                    "registration_number": self.model_instance.registration_number,
-                    "brand_name": self.model_instance.brand_name,
-                    "generic_name": self.model_instance.generic_name,
-                    "manufacturer": self.model_instance.manufacturer,
-                }
-            )
-        elif isinstance(self.model_instance, FoodProducts):
-            result.update(
-                {
-                    "registration_number": self.model_instance.registration_number,
-                    "brand_name": self.model_instance.brand_name,
-                    "product_name": self.model_instance.product_name,
-                    "company_name": self.model_instance.company_name,
-                }
-            )
-        elif isinstance(
-            self.model_instance,
-            (DrugIndustry, FoodIndustry, MedicalDeviceIndustry, CosmeticIndustry),
-        ):
-            result.update(
-                {
-                    "license_number": self.model_instance.license_number,
-                    "name_of_establishment": self.model_instance.name_of_establishment,
-                }
-            )
-        elif isinstance(self.model_instance, DrugsNewApplications):
-            result.update(
-                {
-                    "document_tracking_number": self.model_instance.document_tracking_number,
-                    "brand_name": self.model_instance.brand_name,
-                    "applicant_company": self.model_instance.applicant_company,
-                    "application_type": self.model_instance.application_type,
-                }
-            )
+        result.update(model_fields(self.model_instance))
 
         return result
 
@@ -375,15 +372,7 @@ class ProductVerificationService:
         search_results = await self.search_and_rank_products(search_dict)
         fuzzy_results = [result.to_dict() for result in search_results]
 
-        extracted_fields_dict = {
-            "registration_number": extracted_data.registration_number,
-            "brand_name": extracted_data.brand_name,
-            "product_description": extracted_data.product_description,
-            "manufacturer": extracted_data.manufacturer,
-            "expiry_date": extracted_data.expiry_date,
-            "batch_number": extracted_data.batch_number,
-            "net_weight": extracted_data.net_weight,
-        }
+        extracted_fields_dict = asdict(extracted_data)
 
         if not fuzzy_results:
             confidence = 0
@@ -706,7 +695,7 @@ class ProductVerificationService:
         matched_fields = []
 
         # Convert model to dict for easier field access
-        model_dict = self._model_to_search_dict(model_instance)
+        model_dict = model_fields(model_instance)
 
         # Registration number match (highest weight)
         if (
@@ -1034,7 +1023,7 @@ class ProductVerificationService:
         Returns:
             Tuple of (match_score, matched_fields)
         """
-        model_dict = self._model_to_search_dict(model_instance)
+        model_dict = model_fields(model_instance)
         matched_fields = []
         normalized_product_id = normalize_string(product_id)
 
@@ -1059,46 +1048,6 @@ class ProductVerificationService:
 
         return score, matched_fields
 
-    def _model_to_search_dict(self, model_instance: FDAModel) -> dict[str, Any]:
-        """
-        Convert model instance to dictionary for search operations.
-
-        Args:
-            model_instance: SQLAlchemy model instance
-
-        Returns:
-            Dictionary with searchable fields
-        """
-        if isinstance(model_instance, DrugProducts):
-            return {
-                "registration_number": model_instance.registration_number,
-                "brand_name": model_instance.brand_name,
-                "generic_name": model_instance.generic_name,
-                "manufacturer": model_instance.manufacturer,
-            }
-        if isinstance(model_instance, FoodProducts):
-            return {
-                "registration_number": model_instance.registration_number,
-                "brand_name": model_instance.brand_name,
-                "product_name": model_instance.product_name,
-                "company_name": model_instance.company_name,
-            }
-        if isinstance(
-            model_instance,
-            (DrugIndustry, FoodIndustry, MedicalDeviceIndustry, CosmeticIndustry),
-        ):
-            return {
-                "license_number": model_instance.license_number,
-                "name_of_establishment": model_instance.name_of_establishment,
-            }
-        if isinstance(model_instance, DrugsNewApplications):
-            return {
-                "document_tracking_number": model_instance.document_tracking_number,
-                "brand_name": model_instance.brand_name,
-                "applicant_company": model_instance.applicant_company,
-                "application_type": model_instance.application_type,
-            }
-        return None
 
         # return {}
 

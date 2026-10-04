@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.repository.products_repository import ProductsRepository
 from app.core.database import async_session
 from app.services.product_verification_service import ProductVerificationService
+from app.services.vision_service import get_vision_service
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession]:
@@ -54,16 +55,9 @@ def get_products_repository(
     return ProductsRepository(session=session)
 
 
-def get_vision_service_dependency():
-    """Dependency that provides the HybridVisionService instance."""
-    from app.services.vision_service import get_vision_service
-
-    return get_vision_service()
-
-
 def get_product_verification_service(
     products_repo: ProductsRepository = Depends(get_products_repository),
-    vision_service=Depends(get_vision_service_dependency),
+    vision_service=Depends(get_vision_service),
 ) -> ProductVerificationService:
     """
     Dependency that provides a ProductVerificationService with business logic.

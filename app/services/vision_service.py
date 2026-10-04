@@ -6,8 +6,8 @@ Implements a three-layer approach for efficient and accurate text extraction fro
 import hashlib
 import os
 import time
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import asdict, dataclass, field
+from functools import cache
 
 from groq import Groq
 from loguru import logger
@@ -36,7 +36,6 @@ class VisionResult:
     """Result from vision extraction"""
 
     text: str
-    bbox: list[list[float]]  # Bounding box coordinates
     confidence: float
     is_low_confidence: bool
 
@@ -46,8 +45,6 @@ class ConfidenceReport:
     """Confidence analysis report"""
 
     average_confidence: float
-    critical_fields_confidence: dict[str, float]
-    low_confidence_regions: list[VisionResult]
     needs_groq_fallback: bool
     reason: str
 
@@ -73,13 +70,9 @@ class ProcessingMetadata:
     groq_llama31_time: float = 0.0
     groq_fallback_time: float = 0.0
     total_time: float = 0.0
-    layers_used: list[str] = None
+    layers_used: list[str] = field(default_factory=list)
     groq_vision_confidence: float = 0.0
     groq_fallback_used: bool = False
-
-    def __post_init__(self):
-        if self.layers_used is None:
-            self.layers_used = []
 
 
 class HybridVisionService:
@@ -106,7 +99,7 @@ class HybridVisionService:
             mime_type: Image MIME type
 
         Returns:
-            List of vision results with simulated bounding boxes and confidence
+            List of vision results with text and confidence
         """
         logger.debug("Starting Groq Llama 4 Scout vision extraction")
 
@@ -124,15 +117,13 @@ class HybridVisionService:
 For each piece of text you find, provide:
 1. The exact text as you see it
 2. A confidence score (0.0-1.0) based on text clarity
-3. Approximate position (top, middle, bottom of image)
 
 Return a JSON object with an "items" array containing the extracted text:
 {
   "items": [
     {
       "text": "exact text found",
-      "confidence": 0.95,
-      "position": "top|middle|bottom"
+      "confidence": 0.95
     }
   ]
 }
@@ -193,26 +184,15 @@ Be thorough and extract even small or partially visible text."""
 
             # Convert to VisionResult format
             ocr_results = []
-            for _i, item in enumerate(extracted_items):
+            for item in extracted_items:
                 if isinstance(item, dict):
                     text = item.get("text", "").strip()
                     if text:
                         confidence = float(item.get("confidence", 0.8))
-                        position = item.get("position", "middle")
-
-                        # Create simulated bounding box based on position
-                        if position == "top":
-                            bbox = [[0, 0], [100, 0], [100, 30], [0, 30]]
-                        elif position == "bottom":
-                            bbox = [[0, 170], [100, 170], [100, 200], [0, 200]]
-                        else:  # middle
-                            bbox = [[0, 85], [100, 85], [100, 115], [0, 115]]
-
                         is_low_confidence = confidence < 0.85
                         ocr_results.append(
                             VisionResult(
                                 text=text,
-                                bbox=bbox,
                                 confidence=confidence,
                                 is_low_confidence=is_low_confidence,
                             )
@@ -306,8 +286,6 @@ Be thorough and extract even small or partially visible text."""
         if not vision_results:
             return ConfidenceReport(
                 average_confidence=0.0,
-                critical_fields_confidence={},
-                low_confidence_regions=[],
                 needs_groq_fallback=True,
                 reason="No text detected by vision model",
             )
@@ -342,8 +320,6 @@ Be thorough and extract even small or partially visible text."""
 
         report = ConfidenceReport(
             average_confidence=avg_conf,
-            critical_fields_confidence=critical_fields,
-            low_confidence_regions=low_conf_regions,
             needs_groq_fallback=needs_groq_fallback,
             reason=reason,
         )
@@ -577,15 +553,7 @@ Return as JSON with these exact field names. Set to null if not visible or uncle
             )
 
             # Cache result
-            _groq_fallback_cache[cache_key] = {
-                "registration_number": extracted.registration_number,
-                "brand_name": extracted.brand_name,
-                "product_description": extracted.product_description,
-                "manufacturer": extracted.manufacturer,
-                "expiry_date": extracted.expiry_date,
-                "batch_number": extracted.batch_number,
-                "net_weight": extracted.net_weight,
-            }
+            _groq_fallback_cache[cache_key] = asdict(extracted)
 
             logger.info(
                 f"Groq Llama 4 Maverick extraction successful: "
@@ -723,8 +691,6 @@ Return as JSON with these exact field names. Set to null if not visible or uncle
             raw_text = ""
             confidence_report = ConfidenceReport(
                 average_confidence=0.0,
-                critical_fields_confidence={},
-                low_confidence_regions=[],
                 needs_groq_fallback=True,
                 reason=f"Groq vision extraction failed: {e}",
             )
@@ -786,22 +752,8 @@ Return as JSON with these exact field names. Set to null if not visible or uncle
 
         return final_data, metadata
 
-    def get_cache_stats(self) -> dict[str, Any]:
-        """Get cache statistics"""
-        return {"cache_size": len(_groq_fallback_cache), "cache_keys": list(_groq_fallback_cache.keys())}
 
-    def clear_cache(self):
-        """Clear the Groq fallback result cache"""
-        _groq_fallback_cache.clear()
-
-
-# Global service instance
-_vision_service_instance: HybridVisionService | None = None
-
-
+@cache
 def get_vision_service() -> HybridVisionService:
-    """Get or create the global vision service instance"""
-    global _vision_service_instance
-    if _vision_service_instance is None:
-        _vision_service_instance = HybridVisionService()
-    return _vision_service_instance
+    """Get the shared vision service instance."""
+    return HybridVisionService()
